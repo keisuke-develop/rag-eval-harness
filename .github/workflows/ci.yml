@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Test
+        run: uv run pytest --cov=rageval --cov-report=term-missing
+
+  # 評価の回帰検証：小さな固定評価セットで検索スコアを算出し、
+  # ベースラインを下回ったら落とす。外部APIはモックで動かす。
+  # パイプライン実装後に有効化する。
+  #
+  # eval-regression:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: astral-sh/setup-uv@v3
+  #     - run: uv sync --all-groups
+  #     - run: uv run rageval run experiments/ci_baseline.yaml --assert-recall-at-5 0.70

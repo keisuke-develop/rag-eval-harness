@@ -1,0 +1,34 @@
+# 実験001: チャンクサイズが検索精度に与える影響を見る
+# 動かす軸は chunk のみ。それ以外は fixed で固定する。
+run_id: "001_chunk_size"
+description: "チャンクサイズが検索精度に与える影響を見る"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - chunk: { size: 256, overlap: 32 }
+  - chunk: { size: 512, overlap: 64 }
+  - chunk: { size: 1024, overlap: 128 }
+
+fixed:
+  embedder:
+    provider: "openai"
+    model: "text-embedding-3-small"
+  store:
+    kind: "chroma"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    seed: 42
+
+metrics:
+  - "recall_at_k"
+  - "mrr"
+  - "citation_match"
+  - "abstention"

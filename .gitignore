@@ -1,0 +1,34 @@
+# 秘密情報（絶対にコミットしない）
+.env
+.env.*
+!.env.example
+*.pem
+secrets.json
+
+# 実験の実行結果（result.json は必要なものだけ docs に転記する）
+runs/
+.chroma/
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# テスト・型チェック
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

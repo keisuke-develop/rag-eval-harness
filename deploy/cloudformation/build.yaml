@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  rag-eval-harness のイメージを CodeBuild で作って ECR に push するための構成。
+  手元に Docker が無い環境でもイメージを作れるようにするためのもの。
+  ビルドが要らなくなったらスタックごと消してよい（rageval スタックとは独立）。
+
+Rules:
+  TokyoRegionOnly:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", "ap-northeast-1"]
+        AssertDescription: このスタックは東京リージョン (ap-northeast-1) 専用です。
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: rageval
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,30}$"
+    Description: rageval スタックで使ったのと同じ接頭辞。
+
+  SourceBucket:
+    Type: String
+    Description: ソースの zip を置いた S3 バケット名（rageval スタックの ResultsBucketName）。
+
+  SourceKey:
+    Type: String
+    Default: build/src.zip
+    Description: ソースの zip のキー。
+
+  LogRetentionInDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90]
+    Description: ビルドログの保持日数。
+
+  BuildTimeoutInMinutes:
+    Type: Number
+    Default: 20
+    MinValue: 5
+    MaxValue: 60
+    Description: >-
+      ビルドの上限時間。暴走したビルドが課金を食い続けないよう、短めに切っておく。
+
+Resources:
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_158
+            comment: >-
+              ビルドログに秘密情報を出さない（ECR のログインはパスワードを
+              標準入力で渡す）。CMK の常時課金に見合わない。PoC のため外す。
+    Properties:
+      LogGroupName: !Sub "/aws/codebuild/${ProjectName}-build"
+      RetentionInDays: !Ref LogRetentionInDays
+
+  # ビルドに要る権限だけを与える。ECR は「この1つのリポジトリへ push」だけで、
+  # 他のリポジトリ（このアカウントには別プロジェクトのものがある）には触れない。
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-build"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              # 混乱した代理人（confused deputy）を防ぐ。このアカウントの、
+              # このプロジェクトのビルドからしか引き受けられないようにする。
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+              ArnLike:
+                "aws:SourceArn": !Sub
+                  - "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${Name}"
+                  - Name: !Sub "${ProjectName}-build"
+      Policies:
+        - PolicyName: BuildPermissions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${BuildLogGroup.Arn}:*"
+              - Sid: ReadSourceOnly
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                # ソースの zip だけ。実験結果（runs/）には触れない。
+                Resource: !Sub "arn:aws:s3:::${SourceBucket}/${SourceKey}"
+              - Sid: EcrAuth
+                Effect: Allow
+                # GetAuthorizationToken はリソース指定を受け付けないため * になる。
+                # 取れるのは一時トークンだけで、実際に何ができるかは下の Push で決まる。
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PushToOwnRepositoryOnly
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ProjectName}"
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ProjectName}-build"
+      Description: rag-eval-harness の Docker イメージを作って ECR に push する
+      ServiceRole: !GetAtt BuildRole.Arn
+      TimeoutInMinutes: !Ref BuildTimeoutInMinutes
+      QueuedTimeoutInMinutes: 15
+      # 成果物は ECR に push する。CodeBuild 側に置くものは無い。
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Source:
+        Type: S3
+        Location: !Sub "${SourceBucket}/${SourceKey}"
+        BuildSpec: deploy/buildspec.yml
+      Environment:
+        # BUILD_GENERAL1_SMALL が Docker を動かせるなかで最安。
+        # Lambda コンピュートのほうが安いが、Docker デーモンを動かせないので使えない。
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        # docker build には Docker デーモンが要る。CodeBuild ではこれを立てるために
+        # 特権モードが要る。ビルドはこのアカウント内の自前ソースしか扱わない。
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: IMAGE_REPO_NAME
+            Value: !Ref ProjectName
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+          StreamName: build
+        S3Logs:
+          Status: DISABLED
+
+Outputs:
+  ProjectNameOut:
+    Description: ビルドを開始するときに指定するプロジェクト名
+    Value: !Ref BuildProject
+
+  StartBuildCommand:
+    Description: ビルドを1回だけ実行するコマンド
+    Value: !Sub "aws codebuild start-build --project-name ${ProjectName}-build"
+
+  LogGroupName:
+    Value: !Ref BuildLogGroup

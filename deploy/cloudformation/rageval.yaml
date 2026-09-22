@@ -1,0 +1,403 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  rag-eval-harness を AWS で回すための最小構成。
+  実験は ECS Fargate のタスクとして都度起動し、終われば止まる。常駐するものは作らない。
+  適用手順とコストの目安は deploy/README.md を参照。
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 基本
+        Parameters:
+          - ProjectName
+          - ImageTag
+      - Label:
+          default: タスクの大きさ
+        Parameters:
+          - TaskCpu
+          - TaskMemory
+      - Label:
+          default: 保持期間とコスト
+        Parameters:
+          - LogRetentionInDays
+          - ResultRetentionInDays
+          - MaxImageCount
+      - Label:
+          default: 外部API（実APIで実験する場合のみ）
+        Parameters:
+          - OpenAIApiKeyParameterName
+
+Rules:
+  # コーパスもデータも日本語で、運用も東京に寄せる前提。
+  # 別リージョンに作ると実験結果の保管場所が散らばるため、ここで止める。
+  TokyoRegionOnly:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", "ap-northeast-1"]
+        AssertDescription: このスタックは東京リージョン (ap-northeast-1) 専用です。
+
+Parameters:
+  VpcId:
+    Type: String
+    Default: ""
+    Description: >-
+      タスク用のセキュリティグループを作る VPC。空なら作らない（既定の SG を使う）。
+      既定の VPC を使うなら:
+      aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId'
+
+  ProjectName:
+    Type: String
+    Default: rageval
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,30}$"
+    Description: リソース名の接頭辞。
+
+  ImageTag:
+    Type: String
+    Default: "bootstrap"
+    AllowedPattern: "^[A-Za-z0-9._-]{1,128}$"
+    Description: >-
+      起動する ECR イメージのタグ。ECR のタグは不変にしてあるので、
+      ビルドのたびに build-<番号> が増える。既定の bootstrap は
+      スタックを先に作るための置き値で、この名前のイメージは存在しない。
+
+  TaskCpu:
+    Type: String
+    Default: "512"
+    AllowedValues: ["256", "512", "1024", "2048"]
+    Description: Fargate の vCPU（1024 = 1 vCPU）。
+
+  TaskMemory:
+    Type: String
+    Default: "1024"
+    AllowedValues: ["512", "1024", "2048", "4096", "8192"]
+    Description: Fargate のメモリ (MiB)。CPU との組み合わせに制約がある。
+
+  LogRetentionInDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90]
+    Description: CloudWatch Logs の保持日数。長くすると保管料が増える。
+
+  ResultRetentionInDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    MaxValue: 3650
+    Description: S3 に置いた実験結果の保持日数。
+
+  MaxImageCount:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 50
+    Description: ECR に残すイメージの数。古いものから消す。
+
+  OpenAIApiKeyParameterName:
+    Type: String
+    Default: ""
+    Description: >-
+      OPENAI_API_KEY を入れた SSM パラメータ (SecureString) の名前。
+      空のままなら外部APIを使わない条件しか回せない（それで足りるなら空でよい）。
+
+Conditions:
+  UseOpenAI: !Not [!Equals [!Ref OpenAIApiKeyParameterName, ""]]
+  CreateSecurityGroup: !Not [!Equals [!Ref VpcId, ""]]
+
+Resources:
+  # 実験結果の置き場。公開しない・ACL を使わない・転送は TLS1.2 以上のみ。
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_18
+            comment: >-
+              アクセスログには別バケットが要る。置くのは公開文書の検索スコアだけで、
+              誰がいつ読んだかを追う必要が無い。PoC のため外す（docs/00_requirements.md）。
+    Properties:
+      BucketName: !Sub "${ProjectName}-results-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      # ACL を無効化する。アクセス制御をバケットポリシーと IAM に一本化し、
+      # 「ACL で誰かに読める状態」が紛れ込む経路を塞ぐ。
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      # 実験結果は上書きも削除もしない前提だが、事故は起きる。
+      # 世代を残して、消えたことに後から気づけるようにする。
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldResults
+            Status: Enabled
+            ExpirationInDays: !Ref ResultRetentionInDays
+          - Id: ExpireNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  # 転送中の暗号化を強制する。結果そのものは機微ではないが、既定を緩くしない。
+  ResultsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ResultsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt ResultsBucket.Arn
+              - !Sub "${ResultsBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
+          - Sid: DenyOutdatedTls
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt ResultsBucket.Arn
+              - !Sub "${ResultsBucket.Arn}/*"
+            Condition:
+              NumericLessThan:
+                "s3:TlsVersion": 1.2
+
+  Repository:
+    Type: AWS::ECR::Repository
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_136
+            comment: >-
+              KMS のカスタマー管理キーは鍵あたり月 $1 + API 呼び出し課金。
+              イメージに秘密は入れていない（鍵は実行時に SSM から渡す）ので
+              AES256 で足りる。PoC のため CMK は使わない。
+    Properties:
+      RepositoryName: !Ref ProjectName
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      # タグを不変にする。latest を押し直せなくなる代わりに、
+      # 「検証したイメージ」と「動いているイメージ」が同じであることを保証できる。
+      # ビルドごとに build-<番号> のタグを付け、それをタスク定義に渡す。
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: !Sub |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "古いイメージを消して保管料を抑える",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": ${MaxImageCount}
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+  # 送信しかしないタスク用のセキュリティグループ。
+  # 既定の SG は同じ SG 内からの受信を許すので、送信専用を明示したものを別に切る。
+  # VpcId を渡さなければ作らない（PoC では既定の SG でも外から到達できないため）。
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateSecurityGroup
+    Properties:
+      # GroupDescription は ASCII しか通らないので、ここだけ英語で書く。
+      GroupDescription: !Sub "${ProjectName} task SG: egress only, no inbound rules"
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: ECR からの取得、S3 への書き込み、外部APIの呼び出し
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-task"
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_158
+            comment: >-
+              ログに出るのは実験のスコアと進捗だけで、秘密情報を書かない方針
+              （docs/06_security_review.md）。CMK の常時課金に見合わない。
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}"
+      RetentionInDays: !Ref LogRetentionInDays
+
+  # クラスタ自体には課金されない。タスクが動いている間だけ課金される。
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_65
+            comment: >-
+              Container Insights は CloudWatch のメトリクス課金が乗る。
+              1回きりのバッチで見る指標が無い。PoC のため無効のままにする。
+    Properties:
+      ClusterName: !Ref ProjectName
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled # 有効にすると CloudWatch のメトリクス料金がかかる
+
+  # イメージの取得とログ出力、それに鍵の読み出しだけを許す。
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-execution"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - !If
+          - UseOpenAI
+          - PolicyName: ReadApiKey
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - ssm:GetParameters
+                  Resource: !Sub >-
+                    arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OpenAIApiKeyParameterName}
+          - !Ref AWS::NoValue
+
+  # タスク本体に与える権限は、結果を置くことだけ。読み出しも消去も要らない。
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-task"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: WriteResults
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                # ビルド成果物（build/）には書けないようにする。
+                # タスクが壊れても、次のビルドの入力をすり替えられない。
+                Resource: !Sub "${ResultsBucket.Arn}/runs/*"
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ProjectName
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: rageval
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}:${ImageTag}"
+          Essential: true
+          # 非rootユーザー（uid 10001）で動かす。root で動かさないことを優先し、
+          # ルートFSの読み取り専用化は諦めている。理由:
+          #
+          # Fargate のタスクボリュームは root 所有 0755 で作られ、所有者を指定できない。
+          # そのため「読み取り専用ルートFS + 非root + 書き込み可能な作業領域」を
+          # 同時に満たせない（実際に PermissionError で落ちた）。
+          # どちらか一方なら、権限昇格の余地を狭める非rootのほうを取る。
+          # ルートFSの読み取り専用化は、改ざんの永続化を防ぐ二次的な防御で、
+          # 使い捨てのタスク（ストレージは終了時に破棄・Fargate では暗号化済み）では効きが薄い。
+          #
+          # 両立させるなら EFS のアクセスポイント（PosixUser で所有者を指定できる）を使う。
+          # 常時課金が増えるため、この用途では見合わないと判断した。
+          ReadonlyRootFilesystem: false
+          LinuxParameters:
+            InitProcessEnabled: true
+          Environment:
+            - Name: RESULTS_BUCKET
+              Value: !Ref ResultsBucket
+            - Name: RAGEVAL_OUT
+              Value: /tmp/runs
+          Secrets: !If
+            - UseOpenAI
+            - - Name: OPENAI_API_KEY
+                ValueFrom: !Sub >-
+                  arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OpenAIApiKeyParameterName}
+            - !Ref AWS::NoValue
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: run
+
+Outputs:
+  RepositoryUri:
+    Description: イメージの push 先
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}"
+
+  ResultsBucketName:
+    Description: 実験結果の置き場
+    Value: !Ref ResultsBucket
+
+  ClusterName:
+    Value: !Ref Cluster
+
+  TaskSecurityGroupId:
+    Condition: CreateSecurityGroup
+    Description: run-task に渡すセキュリティグループ（送信のみ）
+    Value: !Ref TaskSecurityGroup
+
+  TaskDefinitionArn:
+    Value: !Ref TaskDefinition
+
+  RunTaskCommand:
+    Description: >-
+      実験を1本回すコマンド。SUBNET_ID と SECURITY_GROUP_ID は自分の VPC のものに置き換える
+      （既定VPCのパブリックサブネットでよい。NAT ゲートウェイは要らない）。
+    Value: !Sub >-
+      aws ecs run-task --cluster ${Cluster} --task-definition ${TaskDefinition}
+      --launch-type FARGATE --region ${AWS::Region}
+      --network-configuration "awsvpcConfiguration={subnets=[SUBNET_ID],securityGroups=[SECURITY_GROUP_ID],assignPublicIp=ENABLED}"
+      --overrides '{"containerOverrides":[{"name":"rageval","command":["experiments/ci_baseline.yaml"]}]}'

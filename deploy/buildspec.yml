@@ -1,0 +1,43 @@
+version: 0.2
+
+# CodeBuild が Docker イメージを作って ECR に push するまでの手順。
+#
+# 手元に Docker が無くてもイメージを作れるようにするためにこれを使っている。
+# ソースは zip で S3 に置き、CodeBuild が展開してここを実行する。
+#
+# タグについて。ECR のタグは不変（IMMUTABLE）にしてあるので、`latest` を
+# 押し直すことはできない。ビルドごとに build-<番号> という新しいタグを付け、
+# どのイメージを動かしているかが常に一意に決まるようにしている。
+# 「検証したイメージ」と「動いているイメージ」が同じである保証が要るため。
+
+env:
+  variables:
+    DOCKER_BUILDKIT: "1"
+
+phases:
+  pre_build:
+    commands:
+      - REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+      - IMAGE="${REGISTRY}/${IMAGE_REPO_NAME}"
+      - TAG="build-${CODEBUILD_BUILD_NUMBER}"
+      - echo "push 先 ${IMAGE}:${TAG}"
+      # ECR へのログイン。パスワードは標準入力で渡し、プロセス一覧に残さない。
+      - aws ecr get-login-password --region "${AWS_REGION}"
+        | docker login --username AWS --password-stdin "${REGISTRY}"
+
+  build:
+    commands:
+      # provenance と sbom は既定で付くが、ECR のマニフェスト検査を通しやすくするため落とす。
+      - docker build --provenance=false --sbom=false -t "${IMAGE}:${TAG}" .
+      # 中身が動くことを確かめてから push する。ここで落ちれば push しない。
+      # 壊れたイメージが ECR に残ると、タグが不変なぶん後始末が面倒になる。
+      - docker run --rm --entrypoint rageval "${IMAGE}:${TAG}" --help
+
+  post_build:
+    commands:
+      - docker push "${IMAGE}:${TAG}"
+      # あとで使うので、タグとダイジェストを控えて出力に残す。
+      - DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}:${TAG}")
+      - echo "IMAGE_TAG=${TAG}"
+      - echo "IMAGE_DIGEST=${DIGEST}"
+      - printf '%s\n' "${TAG}" > image-tag.txt

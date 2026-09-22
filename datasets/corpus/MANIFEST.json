@@ -1,0 +1,126 @@
+{
+  "source": "ja.wikipedia.org",
+  "target_chars": 6000,
+  "documents": [
+    {
+      "doc_id": "doc01_fujisan",
+      "title": "富士山",
+      "domain": "地理・自然",
+      "url": "https://ja.wikipedia.org/wiki/富士山",
+      "revid": 111087163,
+      "chars": 5807,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc02_photosynthesis",
+      "title": "光合成",
+      "domain": "生物・化学",
+      "url": "https://ja.wikipedia.org/wiki/光合成",
+      "revid": 110797416,
+      "chars": 5777,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc03_hummingbird",
+      "title": "ハチドリ",
+      "domain": "生物",
+      "url": "https://ja.wikipedia.org/wiki/ハチドリ",
+      "revid": 110299642,
+      "chars": 4663,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc04_iss",
+      "title": "国際宇宙ステーション",
+      "domain": "宇宙開発",
+      "url": "https://ja.wikipedia.org/wiki/国際宇宙ステーション",
+      "revid": 110740409,
+      "chars": 5910,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc05_tcp",
+      "title": "Transmission Control Protocol",
+      "domain": "情報技術",
+      "url": "https://ja.wikipedia.org/wiki/Transmission_Control_Protocol",
+      "revid": 110486055,
+      "chars": 5701,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc06_solar_power",
+      "title": "太陽光発電",
+      "domain": "エネルギー",
+      "url": "https://ja.wikipedia.org/wiki/太陽光発電",
+      "revid": 110898902,
+      "chars": 5689,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc07_constitution",
+      "title": "日本国憲法",
+      "domain": "法",
+      "url": "https://ja.wikipedia.org/wiki/日本国憲法",
+      "revid": 111066263,
+      "chars": 5967,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc08_world_heritage",
+      "title": "世界遺産",
+      "domain": "国際制度",
+      "url": "https://ja.wikipedia.org/wiki/世界遺産",
+      "revid": 110544168,
+      "chars": 5873,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc09_edo_period",
+      "title": "江戸時代",
+      "domain": "歴史",
+      "url": "https://ja.wikipedia.org/wiki/江戸時代",
+      "revid": 110958346,
+      "chars": 5956,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc10_tokaido_shinkansen",
+      "title": "東海道新幹線",
+      "domain": "交通",
+      "url": "https://ja.wikipedia.org/wiki/東海道新幹線",
+      "revid": 110714341,
+      "chars": 4171,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc11_earthquake",
+      "title": "地震",
+      "domain": "自然科学",
+      "url": "https://ja.wikipedia.org/wiki/地震",
+      "revid": 111012052,
+      "chars": 5897,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    },
+    {
+      "doc_id": "doc12_washi",
+      "title": "和紙",
+      "domain": "文化・工芸",
+      "url": "https://ja.wikipedia.org/wiki/和紙",
+      "revid": 110432896,
+      "chars": 5085,
+      "license": "CC BY-SA 4.0",
+      "fetched_at": "2026-09-21"
+    }
+  ]
+}

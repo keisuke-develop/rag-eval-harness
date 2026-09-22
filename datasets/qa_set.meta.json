@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "generated_at": "2026-09-21",
+  "corpus_documents": 12,
+  "corpus_chars": 66496,
+  "total": 53,
+  "answerable": 48,
+  "unanswerable": 5,
+  "factoid": 42,
+  "questions_per_doc": {
+    "doc01_fujisan": 4,
+    "doc02_photosynthesis": 4,
+    "doc03_hummingbird": 4,
+    "doc04_iss": 4,
+    "doc05_tcp": 4,
+    "doc06_solar_power": 4,
+    "doc07_constitution": 4,
+    "doc08_world_heritage": 4,
+    "doc09_edo_period": 4,
+    "doc10_tokaido_shinkansen": 4,
+    "doc11_earthquake": 4,
+    "doc12_washi": 4
+  }
+}

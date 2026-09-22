@@ -1,0 +1,53 @@
+{"qid": "q001", "question": "富士山でいちばん高い地点の標高は何メートルか。", "gold_spans": [{"doc": "doc01_fujisan", "start": 2481, "end": 2529}], "answerable": true, "factoid": true}
+{"qid": "q002", "question": "「郷土富士」と総称される山は、日本全国におよそ何座あるとされているか。", "gold_spans": [{"doc": "doc01_fujisan", "start": 1310, "end": 1365}], "answerable": true, "factoid": true}
+{"qid": "q003", "question": "富士山の南東斜面にある側火山は、西暦何年の噴火によって生まれたか。", "gold_spans": [{"doc": "doc01_fujisan", "start": 4017, "end": 4088}], "answerable": true, "factoid": true}
+{"qid": "q004", "question": "理化学研究所のフラッグシップ機の名称には、どのような意味が込められているか。", "gold_spans": [{"doc": "doc01_fujisan", "start": 1461, "end": 1548}], "answerable": true, "factoid": false}
+{"qid": "q005", "question": "photosynthesis という呼び方を最初に使ったのは誰で、それは何年のことか。", "gold_spans": [{"doc": "doc02_photosynthesis", "start": 1250, "end": 1304}], "answerable": true, "factoid": true}
+{"qid": "q006", "question": "植物の細胞にある葉緑体は、平均するとどれくらいの長さか。", "gold_spans": [{"doc": "doc02_photosynthesis", "start": 3248, "end": 3308}], "answerable": true, "factoid": true}
+{"qid": "q007", "question": "ATPをつくる酵素は、1秒間に何回転しているか。", "gold_spans": [{"doc": "doc02_photosynthesis", "start": 4902, "end": 4949}], "answerable": true, "factoid": true}
+{"qid": "q008", "question": "酸素を出すタイプの光合成が、他のタイプと決定的に異なる点はどこか。", "gold_spans": [{"doc": "doc02_photosynthesis", "start": 2808, "end": 2856}], "answerable": true, "factoid": false}
+{"qid": "q009", "question": "地球上でいちばん小さい鳥はどの種で、体の長さはどれくらいか。", "gold_spans": [{"doc": "doc03_hummingbird", "start": 162, "end": 228}], "answerable": true, "factoid": true}
+{"qid": "q010", "question": "ハチドリが夜に深い眠りへ入ったとき、体温は何度まで下がるか。", "gold_spans": [{"doc": "doc03_hummingbird", "start": 2945, "end": 2980}], "answerable": true, "factoid": true}
+{"qid": "q011", "question": "極端に長いくちばしを持つ種が、特定の花と結びつくことで得ている利点は何か。", "gold_spans": [{"doc": "doc03_hummingbird", "start": 788, "end": 850}], "answerable": true, "factoid": false}
+{"qid": "q012", "question": "野生で確認された最も長生きの個体は、何歳以上だったか。", "gold_spans": [{"doc": "doc03_hummingbird", "start": 3146, "end": 3234}], "answerable": true, "factoid": true}
+{"qid": "q013", "question": "国際宇宙ステーションが地球を1周するのにかかる時間はどれくらいか。", "gold_spans": [{"doc": "doc04_iss", "start": 755, "end": 788}], "answerable": true, "factoid": true}
+{"qid": "q014", "question": "組み立てが完了した時点で、ISSの横方向のトラスは何メートルの長さになったか。", "gold_spans": [{"doc": "doc04_iss", "start": 3816, "end": 3917}], "answerable": true, "factoid": true}
+{"qid": "q015", "question": "中国が自前の宇宙ステーションを持つことになった経緯はどのようなものか。", "gold_spans": [{"doc": "doc04_iss", "start": 2462, "end": 2535}], "answerable": true, "factoid": false}
+{"qid": "q016", "question": "はじめて長期滞在する乗組員がステーションに着いたのはいつか。", "gold_spans": [{"doc": "doc04_iss", "start": 1079, "end": 1164}], "answerable": true, "factoid": true}
+{"qid": "q017", "question": "IPのヘッダでTCPを示す番号はいくつか。", "gold_spans": [{"doc": "doc05_tcp", "start": 585, "end": 649}], "answerable": true, "factoid": true}
+{"qid": "q018", "question": "TCPのヘッダ部は、最小と最大でそれぞれ何バイトになるか。", "gold_spans": [{"doc": "doc05_tcp", "start": 3786, "end": 3873}], "answerable": true, "factoid": true}
+{"qid": "q019", "question": "音声通話のように遅れを嫌う用途で、このプロトコルが向かないとされるのはなぜか。", "gold_spans": [{"doc": "doc05_tcp", "start": 2421, "end": 2467}], "answerable": true, "factoid": false}
+{"qid": "q020", "question": "TCPの元になった1974年の論文を書いたのは誰か。", "gold_spans": [{"doc": "doc05_tcp", "start": 896, "end": 969}], "answerable": true, "factoid": true}
+{"qid": "q021", "question": "太陽光のパネルは何年ほどで寿命を迎えるとされているか。", "gold_spans": [{"doc": "doc06_solar_power", "start": 2190, "end": 2252}], "answerable": true, "factoid": true}
+{"qid": "q022", "question": "2021年時点で、日本の太陽光による発電費用は1キロワット時あたりいくらか。", "gold_spans": [{"doc": "doc06_solar_power", "start": 5255, "end": 5332}], "answerable": true, "factoid": true}
+{"qid": "q023", "question": "どれくらいの規模の発電所が「メガソーラー」と呼ばれるか。", "gold_spans": [{"doc": "doc06_solar_power", "start": 118, "end": 163}], "answerable": true, "factoid": true}
+{"qid": "q024", "question": "太陽光の設備が燃えたとき、放水による消火がためらわれるのはなぜか。", "gold_spans": [{"doc": "doc06_solar_power", "start": 2540, "end": 2601}], "answerable": true, "factoid": false}
+{"qid": "q025", "question": "日本国憲法が公布された日と、効力を持ちはじめた日はいつか。", "gold_spans": [{"doc": "doc07_constitution", "start": 179, "end": 218}], "answerable": true, "factoid": true}
+{"qid": "q026", "question": "日本国憲法の条文は全部でいくつあり、いくつの章に分かれているか。", "gold_spans": [{"doc": "doc07_constitution", "start": 3332, "end": 3386}], "answerable": true, "factoid": true}
+{"qid": "q027", "question": "三つの基本原理を「個人の尊厳」から導いて示した憲法学者は誰か。", "gold_spans": [{"doc": "doc07_constitution", "start": 1920, "end": 1988}], "answerable": true, "factoid": true}
+{"qid": "q028", "question": "国務請求権とも呼ばれる権利は、どのような内容の権利か。", "gold_spans": [{"doc": "doc07_constitution", "start": 5737, "end": 5786}], "answerable": true, "factoid": false}
+{"qid": "q029", "question": "世界遺産リストから最初に登録を取り消されたのはどの物件か。", "gold_spans": [{"doc": "doc08_world_heritage", "start": 884, "end": 923}], "answerable": true, "factoid": true}
+{"qid": "q030", "question": "日本が世界遺産条約に加わったのは、何番目の締約国としてか。", "gold_spans": [{"doc": "doc08_world_heritage", "start": 4653, "end": 4703}], "answerable": true, "factoid": true}
+{"qid": "q031", "question": "アスワン・ハイ・ダムで水没しかけた遺跡の救済に、日本はいくら拠出したか。", "gold_spans": [{"doc": "doc08_world_heritage", "start": 2641, "end": 2716}], "answerable": true, "factoid": true}
+{"qid": "q032", "question": "自然遺産の候補地を現地調査して勧告を出すのは、どの機関か。", "gold_spans": [{"doc": "doc08_world_heritage", "start": 599, "end": 683}], "answerable": true, "factoid": true}
+{"qid": "q033", "question": "徳川の幕府が続いたのは、およそ何年間か。", "gold_spans": [{"doc": "doc09_edo_period", "start": 256, "end": 332}], "answerable": true, "factoid": true}
+{"qid": "q034", "question": "新井白石が定めた長崎貿易の制限で、オランダ船は年に何隻までとされたか。", "gold_spans": [{"doc": "doc09_edo_period", "start": 2787, "end": 2838}], "answerable": true, "factoid": true}
+{"qid": "q035", "question": "18世紀のはじめごろ、江戸にはどれくらいの人が住んでいたか。", "gold_spans": [{"doc": "doc09_edo_period", "start": 2409, "end": 2464}], "answerable": true, "factoid": true}
+{"qid": "q036", "question": "松平定信が老中を退くころ、幕府の財政はどのような状態になっていたか。", "gold_spans": [{"doc": "doc09_edo_period", "start": 5532, "end": 5590}], "answerable": true, "factoid": false}
+{"qid": "q037", "question": "東海道新幹線が営業をはじめたのはいつか。", "gold_spans": [{"doc": "doc10_tokaido_shinkansen", "start": 98, "end": 162}], "answerable": true, "factoid": true}
+{"qid": "q038", "question": "東京から新大阪までの実際の線路の長さは何キロか。", "gold_spans": [{"doc": "doc10_tokaido_shinkansen", "start": 2153, "end": 2185}], "answerable": true, "factoid": true}
+{"qid": "q039", "question": "この路線はJR東海の運輸収入のうち、どれくらいの割合を占めるか。", "gold_spans": [{"doc": "doc10_tokaido_shinkansen", "start": 1493, "end": 1564}], "answerable": true, "factoid": true}
+{"qid": "q040", "question": "通過列車があるのに本線へ直接ホームを設けている駅では、どのような安全対策がとられているか。", "gold_spans": [{"doc": "doc10_tokaido_shinkansen", "start": 3412, "end": 3493}], "answerable": true, "factoid": false}
+{"qid": "q041", "question": "震源までの距離を求める式を発表したのは誰で、それは何年のことか。", "gold_spans": [{"doc": "doc11_earthquake", "start": 1366, "end": 1409}], "answerable": true, "factoid": true}
+{"qid": "q042", "question": "日本国内には、いまも動いている断層がおよそいくつあるとされるか。", "gold_spans": [{"doc": "doc11_earthquake", "start": 3878, "end": 3919}], "answerable": true, "factoid": true}
+{"qid": "q043", "question": "大正時代に関東を襲った地震では、どれくらいの広さの断層面ができたか。", "gold_spans": [{"doc": "doc11_earthquake", "start": 4757, "end": 4845}], "answerable": true, "factoid": true}
+{"qid": "q044", "question": "深いところで起きた地震は、地表の揺れ方にどのような特徴があるか。", "gold_spans": [{"doc": "doc11_earthquake", "start": 1768, "end": 1844}], "answerable": true, "factoid": false}
+{"qid": "q045", "question": "戦前に1万を超えていた和紙のつくり手は、近年どこまで減ったか。", "gold_spans": [{"doc": "doc12_washi", "start": 878, "end": 951}], "answerable": true, "factoid": true}
+{"qid": "q046", "question": "紙をすく技術が大陸から日本へ渡ってきたのは、何年のこととされているか。", "gold_spans": [{"doc": "doc12_washi", "start": 1812, "end": 1859}], "answerable": true, "factoid": true}
+{"qid": "q047", "question": "いま残っているもののうち、世界でいちばん古い印刷物とされるのは何か。", "gold_spans": [{"doc": "doc12_washi", "start": 3876, "end": 3919}], "answerable": true, "factoid": true}
+{"qid": "q048", "question": "和紙が洋紙にくらべて丈夫で長持ちするとされるのは、どこに理由があるか。", "gold_spans": [{"doc": "doc12_washi", "start": 175, "end": 238}], "answerable": true, "factoid": false}
+{"qid": "q049", "question": "富士山の山頂にある郵便局は、1年のうちどの期間だけ営業しているか。", "gold_spans": [], "answerable": false, "factoid": true}
+{"qid": "q050", "question": "ハチドリの卵は、産まれてから孵るまでにおよそ何日かかるか。", "gold_spans": [], "answerable": false, "factoid": true}
+{"qid": "q051", "question": "日本国憲法を改正するには、衆議院と参議院でそれぞれどれだけの賛成が必要か。", "gold_spans": [], "answerable": false, "factoid": true}
+{"qid": "q052", "question": "世界遺産委員会は、何か国の委員国で構成されているか。", "gold_spans": [], "answerable": false, "factoid": true}
+{"qid": "q053", "question": "単結晶シリコンの太陽電池は、変換効率が何パーセント程度か。", "gold_spans": [], "answerable": false, "factoid": true}

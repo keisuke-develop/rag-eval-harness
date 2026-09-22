@@ -27,13 +27,13 @@ jobs:
     env:
       UV_PYTHON: "3.12"
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # 既定では認証情報が .git/config に残る。この後 push しないので残さない。
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
 
       - name: Sync dependencies
         run: uv sync --all-groups
@@ -56,13 +56,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # 既定では認証情報が .git/config に残る。この後 push しないので残さない。
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
 
       # 依存ライブラリの既知の脆弱性（SCA）。
       # ruff の S ルール（SAST）は自分たちのコードしか見ないので、両方要る。
@@ -76,7 +76,7 @@ jobs:
         run: uvx --from cyclonedx-bom cyclonedx-py requirements requirements.txt -o sbom.json
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom
           path: sbom.json
@@ -128,13 +128,13 @@ jobs:
     env:
       UV_PYTHON: "3.12"
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # 既定では認証情報が .git/config に残る。この後 push しないので残さない。
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
 
       - name: Sync dependencies
         run: uv sync --all-groups
@@ -149,7 +149,7 @@ jobs:
 
       - name: Upload run artifacts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ci-baseline-run
           path: runs/ci_baseline/
@@ -157,3 +157,48 @@ jobs:
           # 結果を書く前に落ちると runs/ が無い。
           # そこで赤くすると、本当の失敗がアップロードの失敗に埋もれる。
           if-no-files-found: ignore
+
+  # イメージが実際に組み上がるか。
+  # 手元に Docker を入れない方針なので、ここでしか確かめられない。
+  # 作るだけで、どこにも push しない。ECR への push は CodeBuild の役目（deploy/）。
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # 既定では認証情報が .git/config に残る。この後 push しないので残さない。
+          persist-credentials: false
+
+      - name: Dockerfile lint
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf  # v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: rageval:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # イメージの中で実験が1本通ること。手元と同じスコアが出るかまでを見る。
+      # RESULTS_BUCKET は渡さないので、S3 には何も送らない。
+      - name: Run one experiment inside the image
+        run: |
+          docker run --rm rageval:ci experiments/ci_baseline.yaml | tee out.txt
+          grep -q "0.562" out.txt || { echo "スコアが手元と違う"; exit 1; }
+
+      # ライセンス本文がイメージの中の配布物に入っていること。
+      # pyproject の license-files が指しているが、COPY を忘れても
+      # ビルドは通ってしまい、静かに落ちる。
+      - name: The license text ships with the package
+        run: |
+          docker run --rm rageval:ci --help >/dev/null
+          docker run --rm --entrypoint sh rageval:ci -c \
+            'ls /usr/local/lib/python3.12/site-packages/rag_eval_harness-*.dist-info/licenses/LICENSE'

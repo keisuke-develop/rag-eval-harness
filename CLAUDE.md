@@ -15,6 +15,8 @@ RAG アプリではなく、RAG を測る装置。この区別を崩さないこ
 - [docs/adr/0001](docs/adr/0001-evaluation-set-first.md) 評価セットをパイプラインより先に作る
 - [docs/adr/0002](docs/adr/0002-limit-pluggable-points.md) 差し替え可能な箇所を4つに限定する
 - [docs/adr/0003](docs/adr/0003-no-llm-judge.md) 生成の評価に LLM-as-a-judge を使わない
+- [docs/adr/0004](docs/adr/0004-measure-the-noise-floor-first.md) 条件を比べる前に、測定系の分解能を測る
+- [docs/adr/0005](docs/adr/0005-no-score-threshold-for-abstention.md) 棄権をスコアの閾値で判定しない
 
 これらに反する変更を提案する場合は、新しい ADR を書いて理由を残すこと。
 黙って覆さない。
@@ -42,6 +44,7 @@ RAG アプリではなく、RAG を測る装置。この区別を崩さないこ
 | 実験の軸 | 1実験につき動かす軸は1つ。`variants` と `fixed` を YAML で明示的に分ける |
 | 外部呼び出し | タイムアウト・指数バックオフのリトライ・レート制限・トークン数記録を必ず通す |
 | テスト | 外部 API は必ずモックする。CI で実際の API を叩かない |
+| セキュリティ | CI で必須にするのは ruff の `S`（SAST）・pip-audit（SCA）・detect-secrets・cfn-lint / checkov（IaC）・zizmor（ワークフロー）。インフラ層は PoC のため対象外（docs/00 参照） |
 | 型 | mypy strict を通す。`Any` を使うときは理由をコメントに書く |
 | 秘密情報 | `.env` はコミットしない。サンプル値は `.env.example` に置く |
 | ライセンス | コーパスに文書を足したら `datasets/corpus/LICENSE-NOTICE.md` に出典とライセンスを追記する |
@@ -60,8 +63,9 @@ uv run pytest            # テスト
 uv run ruff check .      # Lint
 uv run ruff format .     # フォーマット
 uv run mypy              # 型チェック
-uv run rageval run experiments/001_chunk_size.yaml   # 実験（未実装）
-uv run rageval report --out docs/04_results.md       # 結果出力（未実装）
+uv run rageval run experiments/ci_baseline.yaml      # 実験（APIキー不要）
+uv run rageval report                                # 結果出力
+uv run python datasets/build_qa_set.py --check       # 評価セットとコーパスの整合
 ```
 
 ## ドキュメントの位置づけ
@@ -72,7 +76,13 @@ uv run rageval report --out docs/04_results.md       # 結果出力（未実装�
 | `docs/00_requirements.md` | 何を作り、何を作らないか |
 | `docs/01_architecture.md` | モジュール構成とデータフロー |
 | `docs/02_evaluation.md` | このリポジトリの中核。指標と評価セットの設計 |
-| `docs/03_experiment_plan.md` | 実験6本の計画と仮説 |
-| `docs/04_results.md` | 実験結果。実施後に記入 |
+| `docs/03_experiment_plan.md` | 実験の計画と仮説（計画6本＋後から足した4本） |
+| `docs/04_results.md` | 実験結果（実API）。実施後に記入 |
+| `docs/05_offline_results.md` | ダミー埋め込みで回した検索側だけの測定。04 とは混ぜない |
+| `docs/06_security_review.md` | セキュリティと品質の評価記録。受け入れた残リスクも書く |
+| `docs/07_review_log.md` | 全体レビューの記録。見つからなかった回も残す |
+| `docs/08_poc_report.md` | PoC 実施レポート。外部の読み手向けの総括 |
+| `deploy/README.md` | AWS で回す場合の構成・手順・コスト |
+| `deploy/VERIFICATION.md` | AWS 実機検証の記録。つまずいた点と直し方 |
 
 実装を変えたら、対応するドキュメントも同じコミットで更新する。

@@ -3,7 +3,6 @@
 .env.*
 !.env.example
 *.pem
-secrets.json
 
 # 実験の実行結果（result.json は必要なものだけ docs に転記する）
 runs/
@@ -32,3 +31,15 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ローカルで作る CA バンドル（AWS CLI 用）。公開CAの束だがリポジトリには入れない
+.aws-ca-bundle.pem
+ca-bundle.pem
+
+# CI が脆弱性検査のために生成する
+requirements.txt
+
+# CI と手元の検査が生成する成果物
+sbom.json
+secrets.json
+tracked.txt

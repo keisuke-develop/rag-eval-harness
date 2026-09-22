@@ -1,0 +1,38 @@
+# 実験002（外部APIに出ない条件）: 重複幅が検索精度に与える影響
+#
+# 001 で最良だった chunk.size = 512 に固定して、重複幅だけを動かす。
+# 0 / 10%（51字）/ 25%（128字）の3水準。
+#
+# 001 と違ってここは軸が1つに収まる。サイズを固定すれば重複幅は単独で動かせるため。
+run_id: "offline_002_overlap"
+description: "重複幅が検索精度に与える影響（chunk.size=512 固定 / ダミー埋め込み）"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - chunk: { overlap: 0 }
+  - chunk: { overlap: 51 }
+  - chunk: { overlap: 128 }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

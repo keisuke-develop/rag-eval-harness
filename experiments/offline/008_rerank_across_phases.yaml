@@ -1,0 +1,49 @@
+# 実験008（外部APIに出ない条件）: 再ランクの効果が、境界の運を跨いで残るか
+#
+# 007 で、条件を変えずに MRR が 0.284〜0.385（幅 0.101）振れることが分かった。
+# 004 で観測した再ランクの改善は +0.122 で、この幅とほぼ同じ大きさになる。
+#
+# ただし 004 は**同じチャンク分割のうえで**再ランクを切り替えているので、
+# 境界の運は両条件で共通し、差し引きで消えるはず（対応のある比較）。
+# それが本当かを確かめるため、複数の位相それぞれで再ランクを入り切りして、
+# 改善幅が毎回出るかを見る。毎回出るなら、境界の運とは別の効果といえる。
+run_id: "offline_008_rerank_across_phases"
+description: "再ランクの改善幅が、境界の位置を変えても再現するか（ダミー埋め込み）"
+
+multi_axis_reason: "境界の運を跨いで効果が残るかを見る実験なので、phase と rerank を組み合わせる"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - { label: "phase=0 / 再ランクなし", chunk: { phase: 0 }, retrieve: { rerank: false } }
+  - { label: "phase=0 / 再ランクあり", chunk: { phase: 0 }, retrieve: { rerank: true } }
+  - { label: "phase=128 / 再ランクなし", chunk: { phase: 128 }, retrieve: { rerank: false } }
+  - { label: "phase=128 / 再ランクあり", chunk: { phase: 128 }, retrieve: { rerank: true } }
+  - { label: "phase=256 / 再ランクなし", chunk: { phase: 256 }, retrieve: { rerank: false } }
+  - { label: "phase=256 / 再ランクあり", chunk: { phase: 256 }, retrieve: { rerank: true } }
+  - { label: "phase=384 / 再ランクなし", chunk: { phase: 384 }, retrieve: { rerank: false } }
+  - { label: "phase=384 / 再ランクあり", chunk: { phase: 384 }, retrieve: { rerank: true } }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+    phase: 0
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

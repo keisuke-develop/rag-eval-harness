@@ -1,0 +1,45 @@
+# 実験003: top-k が検索と生成に与える影響
+#
+# この実験は実APIを使う。OPENAI_API_KEY が要る。
+# 鍵なしで回せる同じ軸の条件は experiments/offline/003_top_k.yaml にある
+# （結果は docs/05_offline_results.md）。
+#
+# この実験だけは、検索が良くなっても全体が良くなるとは限らないケースの観察が目的。
+# Recall と根拠一致率の**両方**を見ること（docs/03_experiment_plan.md）。
+run_id: "003_top_k"
+description: "top-k が検索と生成に与える影響"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - retrieve: { top_k: 3 }
+  - retrieve: { top_k: 5 }
+  - retrieve: { top_k: 10 }
+
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 64
+  embedder:
+    provider: "openai"
+    model: "text-embedding-3-small"
+  store:
+    # 近似最近傍だと、そのぶれが条件の差に混ざる。比較の道具としては総当たりを使う。
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    seed: 42
+
+metrics:
+  - "recall_at_k"
+  - "mrr"
+  - "citation_match"
+  - "abstention"

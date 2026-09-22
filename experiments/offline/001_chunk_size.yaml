@@ -1,0 +1,40 @@
+# 実験001（外部APIに出ない条件）: チャンクサイズが検索精度に与える影響
+#
+# experiments/001_chunk_size.yaml と同じ軸を、ダミーの埋め込みと生成で回す。
+# 計画どおりの実APIでの実験ではないので、run_id も結果の置き場も分けてある。
+#
+# metrics に検索側の2つしか挙げていないのは、この条件では生成側の指標が
+# 意味を持たないため（docs/05_offline_results.md）。宣言しない指標は表に出ない。
+run_id: "offline_001_chunk_size"
+description: "チャンクサイズが検索精度に与える影響（ダミー埋め込み）"
+
+# 重複幅をサイズの12.5%に保つため、size と overlap が連動して動く。
+# 詳細は experiments/001_chunk_size.yaml のコメントを参照。
+multi_axis_reason: "重複幅をサイズの12.5%に保つため、size と overlap が連動して動く"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - chunk: { size: 256, overlap: 32 }
+  - chunk: { size: 512, overlap: 64 }
+  - chunk: { size: 1024, overlap: 128 }
+
+fixed:
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

@@ -1,0 +1,40 @@
+# CI の回帰検証用。
+#
+# 外部APIに出ない条件だけで組んである。CI で実際のAPIを叩かないという方針
+# （CLAUDE.md）を守りつつ、プロンプトや設定の変更で検索が壊れていないかを見る。
+#
+# ここで測れるのは検索側だけなので、metrics も検索側の2つしか宣言しない。
+# 生成は最上位ヒットを引用するだけの決定的な実装で、根拠一致率は
+# 「検索の1位が当たった割合」でしかなく、棄権率は常に 0 になるため。
+run_id: "ci_baseline"
+description: "外部APIに出ない条件で、検索スコアがベースラインを下回っていないかを見る"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - label: "baseline"
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 64
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+    temperature: 0.0
+    seed: 42
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

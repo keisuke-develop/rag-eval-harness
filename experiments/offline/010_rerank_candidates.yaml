@@ -1,0 +1,47 @@
+# 実験010（外部APIに出ない条件）: 再ランクの候補数を広げると、集合ごと入れ替わるか
+#
+# 004 では candidates を指定しなかったため、再ランクは top-5 で取った集合を
+# 並べ替えるだけで、Recall@5 は定義上動かなかった。
+# docs/05_offline_results.md の「次に試すこと」に書いたとおり、候補を広げて
+# **集合そのものが入れ替わる形**での Recall の変化を見る。
+#
+# 候補を広げるほど、埋め込みが拾えなかったチャンクを再ランカーが拾い上げられる。
+# 一方で、広げるほど無関係なチャンクも候補に入る。どちらが勝つかを見る。
+run_id: "offline_010_rerank_candidates"
+description: "再ランクの候補数を広げたときの Recall と MRR（ダミー埋め込み）"
+
+multi_axis_reason: "再ランクの有無と候補数を同時に見る必要があるため（候補数は再ランク時にしか意味がない）"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - { label: "再ランクなし", retrieve: { rerank: false } }
+  - { label: "再ランク candidates=5（集合は不変）", retrieve: { rerank: true, candidates: 5 } }
+  - { label: "再ランク candidates=10", retrieve: { rerank: true, candidates: 10 } }
+  - { label: "再ランク candidates=20", retrieve: { rerank: true, candidates: 20 } }
+  - { label: "再ランク candidates=50", retrieve: { rerank: true, candidates: 50 } }
+  - { label: "再ランク candidates=137（全チャンク）", retrieve: { rerank: true, candidates: 137 } }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+    phase: 0
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

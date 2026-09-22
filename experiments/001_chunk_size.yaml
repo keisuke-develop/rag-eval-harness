@@ -1,7 +1,17 @@
 # 実験001: チャンクサイズが検索精度に与える影響を見る
-# 動かす軸は chunk のみ。それ以外は fixed で固定する。
+#
+# この実験は実APIを使う。OPENAI_API_KEY が要る。
+# 鍵なしで回せる条件は experiments/ci_baseline.yaml を参照。
 run_id: "001_chunk_size"
 description: "チャンクサイズが検索精度に与える影響を見る"
+
+# チャンクサイズを動かすと、重複幅も一緒に動く。どちらを固定しても何かが動くため。
+#   - 重複幅を絶対値で固定する（例: 常に64字）→ 重複の「割合」が 25% から 6% まで変わる
+#   - 重複幅を割合で固定する（12.5%）→ 重複の「絶対値」が 32 から 128 まで変わる
+# docs/03_experiment_plan.md では後者を選んでいる。チャンク境界で切れた記述を救える量は
+# チャンクの長さに対する比で効くと見ているため。ただし絶対値が動く以上、
+# サイズ単独の効果とは言い切れない。ここを暗黙にしないために理由を明示する。
+multi_axis_reason: "重複幅をサイズの12.5%に保つため、size と overlap が連動して動く"
 
 dataset:
   corpus: "datasets/corpus"
@@ -17,7 +27,8 @@ fixed:
     provider: "openai"
     model: "text-embedding-3-small"
   store:
-    kind: "chroma"
+    # 近似最近傍だと、そのぶれが条件の差に混ざる。比較の道具としては総当たりを使う。
+    kind: "memory"
   retrieve:
     top_k: 5
     rerank: false

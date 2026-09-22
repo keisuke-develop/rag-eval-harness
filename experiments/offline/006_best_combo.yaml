@@ -1,0 +1,44 @@
+# 実験006（外部APIに出ない条件）: 001〜004 の最良条件を組み合わせる
+#
+# ベースライン（docs/04_results.md に定めた初期設定）と、001〜004 で
+# それぞれ最良だった条件を全部盛りにしたものを並べる。
+#
+# 個別の改善が積み上がるか、打ち消し合うかを見るのが狙い。
+run_id: "offline_006_best_combo"
+description: "001〜004 の最良条件の組み合わせ（ダミー埋め込み）"
+
+# ベースラインと最良条件を比べる実験なので、軸は当然複数になる。
+multi_axis_reason: "個別の改善が積み上がるかを見る実験なので、001〜004 の最良条件をまとめて動かす"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - label: "baseline（chunk 512/64・top-k 5・再ランクなし）"
+    chunk: { size: 512, overlap: 64 }
+    retrieve: { top_k: 5, rerank: false }
+  - label: "best（chunk 512/0・top-k 10・再ランクあり）"
+    chunk: { size: 512, overlap: 0 }
+    retrieve: { top_k: 10, rerank: true }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 64
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

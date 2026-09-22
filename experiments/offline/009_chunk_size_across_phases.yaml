@@ -1,0 +1,72 @@
+# 実験009（外部APIに出ない条件）: チャンクサイズの効果を、境界の運から切り離す
+#
+# 001 では「中間（512）に山がある」という結論を出したが、007 でノイズ幅を実測したところ
+# 観測した差（0.062）がノイズ（0.083）に埋もれていたため取り下げた。
+#
+# 008 で「同じ分割のうえで比べれば境界の運は消える」ことは確かめたが、
+# **チャンクサイズを変えると分割そのものが変わる**ので、その手は使えない。
+# 代わりに、各サイズについて位相を8通り振り、平均で比べる。
+# 境界の当たり外れを平均で潰せば、サイズの効果だけが残る。
+#
+# 位相はサイズに対する割合で揃えている（0, 1/8, 2/8, ... 7/8）。
+# 絶対値で揃えると、サイズごとに「境界のどのあたりか」が変わってしまうため。
+#
+# 最初は4通りで回したが、2群の平均を比べるときの標準誤差は
+# 片群の標準誤差の√2倍になり、差 0.036 に対して 1.6σ にしかならなかった。
+# 8通りに増やして精度を上げている。
+run_id: "offline_009_chunk_size_across_phases"
+description: "チャンクサイズ3通り × 境界の位相8通り（ダミー埋め込み）"
+
+multi_axis_reason: "サイズの効果を境界の運から切り離すため、size と phase を組み合わせる"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - { label: "size=256 phase=0/8", chunk: { size: 256, phase: 0 } }
+  - { label: "size=256 phase=1/8", chunk: { size: 256, phase: 32 } }
+  - { label: "size=256 phase=2/8", chunk: { size: 256, phase: 64 } }
+  - { label: "size=256 phase=3/8", chunk: { size: 256, phase: 96 } }
+  - { label: "size=256 phase=4/8", chunk: { size: 256, phase: 128 } }
+  - { label: "size=256 phase=5/8", chunk: { size: 256, phase: 160 } }
+  - { label: "size=256 phase=6/8", chunk: { size: 256, phase: 192 } }
+  - { label: "size=256 phase=7/8", chunk: { size: 256, phase: 224 } }
+  - { label: "size=512 phase=0/8", chunk: { size: 512, phase: 0 } }
+  - { label: "size=512 phase=1/8", chunk: { size: 512, phase: 64 } }
+  - { label: "size=512 phase=2/8", chunk: { size: 512, phase: 128 } }
+  - { label: "size=512 phase=3/8", chunk: { size: 512, phase: 192 } }
+  - { label: "size=512 phase=4/8", chunk: { size: 512, phase: 256 } }
+  - { label: "size=512 phase=5/8", chunk: { size: 512, phase: 320 } }
+  - { label: "size=512 phase=6/8", chunk: { size: 512, phase: 384 } }
+  - { label: "size=512 phase=7/8", chunk: { size: 512, phase: 448 } }
+  - { label: "size=1024 phase=0/8", chunk: { size: 1024, phase: 0 } }
+  - { label: "size=1024 phase=1/8", chunk: { size: 1024, phase: 128 } }
+  - { label: "size=1024 phase=2/8", chunk: { size: 1024, phase: 256 } }
+  - { label: "size=1024 phase=3/8", chunk: { size: 1024, phase: 384 } }
+  - { label: "size=1024 phase=4/8", chunk: { size: 1024, phase: 512 } }
+  - { label: "size=1024 phase=5/8", chunk: { size: 1024, phase: 640 } }
+  - { label: "size=1024 phase=6/8", chunk: { size: 1024, phase: 768 } }
+  - { label: "size=1024 phase=7/8", chunk: { size: 1024, phase: 896 } }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+    phase: 0
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

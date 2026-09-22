@@ -1,0 +1,51 @@
+# 実験007（外部APIに出ない条件）: この測定系のノイズ幅を測る
+#
+# これは実験計画（docs/03_experiment_plan.md）の6本には無い、後から足した実験。
+# 001〜006 を回したあとに、結果の読み方そのものが疑わしくなったため。
+#
+# きっかけ: 002（重複幅）で、正解チャンクが内容の8割が同じ別チャンクにずれただけで
+# 5位圏外に落ちる例が複数あった（docs/05_offline_results.md）。
+# つまり観測していたのは重複幅の効果ではなく「境界がどこに落ちるかの運」ではないか、
+# という疑いが出た。
+#
+# 測り方: chunk.phase は境界の位置をずらすだけで、**本来スコアに影響してはいけない自由度**。
+# 条件としては何も変えていないのに出るスコアの散らばりが、この測定系のノイズ幅そのものになる。
+# ここで出た幅より小さい差は、どの実験でも「条件の効果」として読んではいけない。
+run_id: "offline_007_boundary_noise"
+description: "境界の位置だけを動かして、条件を変えずに出る散らばりを測る（ダミー埋め込み）"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - chunk: { phase: 0 }
+  - chunk: { phase: 64 }
+  - chunk: { phase: 128 }
+  - chunk: { phase: 192 }
+  - chunk: { phase: 256 }
+  - chunk: { phase: 320 }
+  - chunk: { phase: 384 }
+  - chunk: { phase: 448 }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+    phase: 0
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

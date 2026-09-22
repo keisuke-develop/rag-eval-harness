@@ -1,0 +1,45 @@
+# 実験002: 重複幅が検索精度に与える影響
+#
+# この実験は実APIを使う。OPENAI_API_KEY が要る。
+# 鍵なしで回せる同じ軸の条件は experiments/offline/002_overlap.yaml にある
+# （結果は docs/05_offline_results.md）。
+#
+# **chunk.size は 001 の結果が出てから確定する。** いまは docs/04_results.md の
+# ベースライン条件 512 を仮置きしている。001 を実APIで回したら、最良だったサイズに直すこと。
+run_id: "002_overlap"
+description: "重複幅が検索精度に与える影響"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - chunk: { overlap: 0 }
+  - chunk: { overlap: 51 }
+  - chunk: { overlap: 128 }
+
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+  embedder:
+    provider: "openai"
+    model: "text-embedding-3-small"
+  store:
+    # 近似最近傍だと、そのぶれが条件の差に混ざる。比較の道具としては総当たりを使う。
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    seed: 42
+
+metrics:
+  - "recall_at_k"
+  - "mrr"
+  - "citation_match"
+  - "abstention"

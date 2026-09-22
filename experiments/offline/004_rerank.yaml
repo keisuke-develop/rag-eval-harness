@@ -1,0 +1,43 @@
+# 実験004（外部APIに出ない条件）: 再ランクの有無
+#
+# 001・002 で最良だった chunk 512 / overlap 0、top-k 5 に固定して、再ランクだけを切り替える。
+#
+# candidates を指定していないので、再ランクは top-k で取った集合を**並べ替えるだけ**。
+# 集合が変わらないため Recall@5 は定義上動かず、動くのは MRR だけになる。
+# これは docs/03_experiment_plan.md の実験004の仮説そのもの。
+# 候補を広げて集合ごと入れ替える形は、別の実験として分けるべきなのでここではやらない。
+#
+# 再ランカーは文字 n-gram の重なりで並べ替える決定的な実装。
+# 交差エンコーダのような賢さは無いので、**「再ランクの効果」ではなく
+# 「この再ランカーの効果」**として読むこと。
+run_id: "offline_004_rerank"
+description: "再ランクの有無が順位に与える影響（ダミー再ランカー）"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - retrieve: { rerank: false }
+  - retrieve: { rerank: true }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+  embedder:
+    provider: "hashing"
+    model: "char-ngram"
+    dim: 512
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "quote"
+    model: "top-hit-quote"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"

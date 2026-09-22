@@ -1,0 +1,44 @@
+# 実験004: 再ランクのコストに見合う改善があるか
+#
+# この実験は実APIを使う。OPENAI_API_KEY が要る。
+# 鍵なしで回せる同じ軸の条件は experiments/offline/004_rerank.yaml にある
+# （結果は docs/05_offline_results.md）。
+#
+# candidates を指定していないので、再ランクは top-k で取った集合を並べ替えるだけ。
+# Recall@5 は定義上動かず、動くのは MRR だけになる。これは計画どおりの仮説。
+run_id: "004_rerank"
+description: "再ランクのコストに見合う改善があるか"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - retrieve: { rerank: false }
+  - retrieve: { rerank: true }
+
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 64
+  embedder:
+    provider: "openai"
+    model: "text-embedding-3-small"
+  store:
+    # 近似最近傍だと、そのぶれが条件の差に混ざる。比較の道具としては総当たりを使う。
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    seed: 42
+
+metrics:
+  - "recall_at_k"
+  - "mrr"
+  - "citation_match"
+  - "abstention"

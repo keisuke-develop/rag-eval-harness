@@ -1,0 +1,49 @@
+# 実験005: 埋め込みモデルの差が、他の条件より効くか
+#
+# **この実験は実APIが要る。** ダミーの埋め込みは1種類しかなく、
+# dim を振っても「同じ手法の次元数」しか比べられないため、
+# 外部APIに出ない条件では実施できない（docs/05_offline_results.md §9）。
+#
+# 計画上いちばん重要な実験。「ここが一番効くなら、チューニングより先に
+# モデルを選べ」という結論になりうるため（docs/03_experiment_plan.md）。
+#
+# **回す前に、まず experiments/offline/007_boundary_noise.yaml と同じ測定を
+# 実APIの埋め込みでやること。** 埋め込みが変われば測定系のノイズ幅も変わる。
+# ダミーでは Recall が 0.083（4問）振れた。その幅を知らないまま
+# モデル間の差を読むと、001 と同じ誤りを繰り返す。
+run_id: "005_embedder"
+description: "埋め込みモデルの差が検索精度に与える影響"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - embedder: { model: "text-embedding-3-small" }
+  - embedder: { model: "text-embedding-3-large" }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+    phase: 0
+  embedder:
+    provider: "openai"
+    model: "text-embedding-3-small"
+  store:
+    # 近似最近傍だと、そのぶれが条件の差に混ざる。比較の道具としては総当たりを使う。
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    seed: 42
+
+metrics:
+  - "recall_at_k"
+  - "mrr"
+  - "citation_match"
+  - "abstention"

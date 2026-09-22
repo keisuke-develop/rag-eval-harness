@@ -1,5 +1,9 @@
 # rag-eval-harness
 
+[![CI](https://github.com/keisuke-develop/rag-eval-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/keisuke-develop/rag-eval-harness/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-informational.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-informational.svg)](pyproject.toml)
+
 **RAG の設定を変えたとき、検索と生成の精度がどう動くかを、同じ評価セットで比較するための道具です。**
 
 RAG は「とりあえず動くもの」を作るのは簡単ですが、チャンクサイズを 512 から 256 に変えたときに精度が上がったのか下がったのかは、測る仕組みがないと分かりません。このリポジトリは、その「測る仕組み」のほうを主役にしています。

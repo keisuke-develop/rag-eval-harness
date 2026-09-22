@@ -200,7 +200,7 @@ RAG は動くものを組むまでが速い。しかし改善に入ると、チ�
 | 型検査 | mypy strict 通過 |
 | 静的解析 | ruff（flake8-bandit 含む）指摘0件 |
 | 依存の脆弱性 | pip-audit 0件（**5件見つけて0にした**、下記） |
-| 秘密情報 | detect-secrets でコミット対象99ファイル 0件 |
+| 秘密情報 | detect-secrets でコミット対象96ファイル 0件 |
 | IaC | cfn-lint 通過、checkov 46件通過・抑止5件（理由つき） |
 | ワークフロー | zizmor 指摘0。Actions はコミットハッシュで固定し、Dependabot に更新させる |
 | **CI 上での実行** | **緑**。check / security / eval-regression / image の4ジョブ |

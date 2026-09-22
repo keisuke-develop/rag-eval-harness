@@ -5,14 +5,35 @@ on:
     branches: [main]
   pull_request:
 
+# 既定のトークン権限は広い。このワークフローは読むだけで、
+# issue もリリースもパッケージも触らないので、読み取りだけに絞る。
+permissions:
+  contents: read
+
+# 同じ枝に続けて push したとき、古い実行を打ち切る。
+# 結果を見ないものに Actions の時間を使わないため。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Docker イメージ（python:3.12-slim）と版を揃える。
+    # 指定しないとランナーの既定に従うので、いつの間にか別の版で検証していることになる。
+    # 回帰検証はスコアが1桁も動かないことを見るので、版が動くと意味が変わる。
+    # 検査ツール（security ジョブの uvx）まで縛る理由は無いため、そちらには置かない。
+    env:
+      UV_PYTHON: "3.12"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          # 既定では認証情報が .git/config に残る。この後 push しないので残さない。
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
 
       - name: Sync dependencies
         run: uv sync --all-groups
@@ -27,16 +48,112 @@ jobs:
         run: uv run mypy
 
       - name: Test
-        run: uv run pytest --cov=rageval --cov-report=term-missing
+        run: uv run pytest --cov=rageval --cov-report=term-missing --cov-fail-under=95
 
-  # 評価の回帰検証：小さな固定評価セットで検索スコアを算出し、
-  # ベースラインを下回ったら落とす。外部APIはモックで動かす。
-  # パイプライン実装後に有効化する。
+  # セキュリティの検査。`check` と分けているのは、
+  # 「コードが壊れている」と「脆弱性がある」を別々に見たいため。
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          # 既定では認証情報が .git/config に残る。この後 push しないので残さない。
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
+
+      # 依存ライブラリの既知の脆弱性（SCA）。
+      # ruff の S ルール（SAST）は自分たちのコードしか見ないので、両方要る。
+      - name: Dependency vulnerabilities
+        run: |
+          uv export --format requirements-txt --no-dev --no-emit-project > requirements.txt
+          uvx pip-audit -r requirements.txt --progress-spinner off
+
+      # 使っているものの一覧を残す。脆弱性が後から公表されたときに影響範囲を追うため。
+      - name: Generate SBOM
+        run: uvx --from cyclonedx-bom cyclonedx-py requirements requirements.txt -o sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 30
+
+      # コミット対象のファイルに秘密情報が混ざっていないか。
+      # public リポジトリなので、入ってからでは取り返しがつかない。
+      # detect-secrets-hook は検出したら非ゼロで終わる。
+      - name: Secret scan
+        run: |
+          uvx --from detect-secrets detect-secrets-hook \
+            $(git ls-files --cached --others --exclude-standard)
+
+      # CloudFormation の記法（cfn-lint）とセキュリティ設定（checkov）。
+      # cfn-lint はリンタでセキュリティ特化ではないので、両方通す。
+      # checkov で意図的に見送った項目は、テンプレート側に理由つきで抑止を書いてある。
+      - name: IaC lint
+        run: uvx cfn-lint deploy/cloudformation/*.yaml
+
+      - name: IaC security scan
+        run: |
+          uvx --from checkov checkov -d deploy/cloudformation \
+            --framework cloudformation --compact --quiet
+
+      # ワークフロー自身の検査。ここを乗っ取られると、他の検査は全部素通りになる。
+      # 書式（スキーマ）と、権限・ハッシュ固定などの設定の両方を見る。
+      - name: Workflow lint
+        run: |
+          uvx check-jsonschema --builtin-schema vendor.github-workflows \
+            .github/workflows/ci.yml
+          uvx check-jsonschema --builtin-schema vendor.dependabot .github/dependabot.yml
+
+      - name: Workflow security scan
+        run: uvx zizmor --offline .github/workflows/
+
+  # 評価の回帰検証。小さな固定評価セットで検索スコアを算出し、
+  # ベースラインを下回ったら落とす。
   #
-  # eval-regression:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: astral-sh/setup-uv@v3
-  #     - run: uv sync --all-groups
-  #     - run: uv run rageval run experiments/ci_baseline.yaml --assert-recall-at-5 0.70
+  # 閾値 0.50 は、実装時点で測った Recall@5 = 0.562 から余裕を取った値。
+  # 到達目標ではなく「壊れていないこと」の下限として置いている。
+  # 埋め込みは外部APIに出ない決定的な実装なので、この検証は実際のAPIを叩かない。
+  eval-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Docker イメージ（python:3.12-slim）と版を揃える。
+    # 指定しないとランナーの既定に従うので、いつの間にか別の版で検証していることになる。
+    # 回帰検証はスコアが1桁も動かないことを見るので、版が動くと意味が変わる。
+    # 検査ツール（security ジョブの uvx）まで縛る理由は無いため、そちらには置かない。
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          # 既定では認証情報が .git/config に残る。この後 push しないので残さない。
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      # コーパスを1文字でも動かすと評価セットの文字オフセットがずれる。
+      # 生成物と原稿が食い違っていないことを、実験を回す前に確かめる。
+      - name: Verify the evaluation set matches the corpus
+        run: uv run python datasets/build_qa_set.py --check
+
+      - name: Retrieval regression
+        run: uv run rageval run experiments/ci_baseline.yaml --assert-recall-at-5 0.50
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ci-baseline-run
+          path: runs/ci_baseline/
+          retention-days: 7
+          # 結果を書く前に落ちると runs/ が無い。
+          # そこで赤くすると、本当の失敗がアップロードの失敗に埋もれる。
+          if-no-files-found: ignore

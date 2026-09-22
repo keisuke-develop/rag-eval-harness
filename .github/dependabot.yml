@@ -1,0 +1,15 @@
+# Actions をコミットハッシュで固定した（ci.yml）。
+# 固定したままだと、上流のセキュリティ修正が入ってこない。
+# Dependabot にハッシュを上げてもらうことで、固定と更新を両立させる。
+#
+# 対象は Actions だけにしている。Python の依存まで開けると PR が増えすぎるうえ、
+# 依存の脆弱性は CI の pip-audit が毎回見ているので、そちらで気づける。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"

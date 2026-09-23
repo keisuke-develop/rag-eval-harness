@@ -64,6 +64,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
 
+      # check_templates.py が pyyaml を使う。
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
       # 依存ライブラリの既知の脆弱性（SCA）。
       # ruff の S ルール（SAST）は自分たちのコードしか見ないので、両方要る。
       - name: Dependency vulnerabilities
@@ -100,6 +104,11 @@ jobs:
         run: |
           uvx --from checkov checkov -d deploy/cloudformation \
             --framework cloudformation --compact --quiet
+
+      # cfn-lint が見ない制約。セキュリティグループのルールの説明は ASCII のみ。
+      # これを通り抜けてデプロイ時に落ちたことがある（deploy/VERIFICATION.md）。
+      - name: Template constraints cfn-lint does not cover
+        run: uv run python deploy/check_templates.py
 
       # ワークフロー自身の検査。ここを乗っ取られると、他の検査は全部素通りになる。
       # 書式（スキーマ）と、権限・ハッシュ固定などの設定の両方を見る。

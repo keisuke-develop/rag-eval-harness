@@ -3,10 +3,11 @@
 **この道具は CLI で完結する。** AWS はあくまで「手元の代わりに回す場所」であり、
 無くても困らない。ここに置いてあるのは、必要になったときに薄く載せるための一式。
 
-> **状態：検証済み（2026-09-21）。** 東京リージョンに実際に作り、イメージをビルドし、
-> タスクを回し、結果を回収し、片付けるところまで通した。手元での実行と結果が
-> 1文字も違わないことを確認している。つまずいた6点と直し方は
-> [VERIFICATION.md](VERIFICATION.md) に、セキュリティの評価は
+> **状態：検証済み（2026-09-21 / 2026-09-23 の2回）。** 東京リージョンに実際に作り、
+> イメージをビルドし、タスクを回し、結果を回収し、片付けるところまで通した。
+> **スコアは手元と完全に一致する**（所要時間の記録だけは環境で変わる）。
+> 2回目は送信専用セキュリティグループを載せた構成で、**そこでテンプレートの不具合を1件見つけた。**
+> つまずいた点と直し方は [VERIFICATION.md](VERIFICATION.md) に、セキュリティの評価は
 > [../docs/06_security_review.md](../docs/06_security_review.md) にある。
 
 ---
@@ -49,7 +50,8 @@
 - リージョンは **東京 (ap-northeast-1) のみ**。テンプレートに `Rules` で縛ってある
 - `aws` CLI が使えること
 - CloudFormation・ECR・ECS・S3・IAM・Logs・CodeBuild を作れる権限
-- **`docker` は要らない。** イメージは CodeBuild で作る（手元に Docker が無い前提）
+- **`docker` は要らない。** イメージは CodeBuild で作る（手元に Docker が無い前提。手順 2-a）
+- **スタックを作る順序は `rageval` → `rageval-build`。** 後者は前者のバケット名を要求する
 
 ### Windows の Git Bash から叩く場合の設定
 
@@ -105,7 +107,58 @@ aws cloudformation describe-stacks --region ap-northeast-1 \
   --stack-name rageval --query 'Stacks[0].Outputs' --output table
 ```
 
-### 2. イメージを作って push する
+### 2. イメージを作る
+
+**手元に Docker が要らないほうを既定にする。** イメージは CodeBuild で作る。
+`docker build` する手もあるので、下に両方書いてある。
+
+ECR のタグは不変（`IMMUTABLE`）にしてある。同じタグを上書きできないので、
+**ビルドのたびに `build-<番号>` が増える。**
+タスク定義の `ImageTag` の既定値 `bootstrap` は、イメージが1つも無い状態で
+スタックを先に作るための置き値で、この名前のイメージは存在しない。
+
+#### 2-a. CodeBuild で作る（Docker が要らない）
+
+**手順1でバケットができているので、そこにソースを置く。**
+`rageval-build` スタックは手順1のバケット名を要求するため、**手順1より先には作れない。**
+
+```bash
+REGION=ap-northeast-1
+BUCKET=$(aws cloudformation describe-stacks --region $REGION \
+  --stack-name rageval \
+  --query 'Stacks[0].Outputs[?OutputKey==`ResultsBucketName`].OutputValue' --output text)
+
+# コミット対象のファイルだけを固める。.env 等が混ざっていたら失敗する
+uv run python deploy/package_source.py src.zip
+aws s3 cp src.zip "s3://$BUCKET/build/src.zip" --region $REGION
+
+aws cloudformation deploy --region $REGION --stack-name rageval-build \
+  --template-file deploy/cloudformation/build.yaml \
+  --parameter-overrides SourceBucket=$BUCKET \
+  --capabilities CAPABILITY_NAMED_IAM
+
+aws codebuild start-build --region $REGION --project-name rageval-build
+```
+
+ビルドは `rageval --help` をイメージの中で実行してから push する。
+そこで落ちれば push しないので、動かないイメージが ECR に入ることはない。
+
+**push されたタグを確認して、スタックを更新する。この更新を忘れるとタスクが起動しない。**
+
+```bash
+TAG=$(aws ecr describe-images --region $REGION --repository-name rageval \
+  --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' --output text)
+echo "$TAG"   # 例: build-1
+
+aws cloudformation deploy --region $REGION --stack-name rageval \
+  --template-file deploy/cloudformation/rageval.yaml \
+  --parameter-overrides VpcId=$VPC ImageTag=$TAG \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+#### 2-b. 手元の Docker で作る
+
+Docker を入れている場合はこちらでもよい。タグは自分で決める。
 
 ```bash
 REGION=ap-northeast-1
@@ -115,9 +168,11 @@ REPO=$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/rageval
 aws ecr get-login-password --region $REGION \
   | docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$REGION.amazonaws.com
 
-docker build -t $REPO:latest .
-docker push $REPO:latest
+docker build -t $REPO:manual-1 .
+docker push $REPO:manual-1
 ```
+
+そのあと 2-a と同じように `ImageTag=manual-1` でスタックを更新する。
 
 コーパスと評価セットはイメージに焼き込んでいる。実行時に外部から取りに行かないので、
 ネットワークが無くても検索側の実験は回る。
@@ -198,6 +253,7 @@ aws cloudformation deploy \
 | 止めている間 | 月 $0.1 前後（ECR に 1GB 弱のイメージ 1〜5 個 + S3 数MB + ログ） |
 | 実験を1本回す | $0.01 未満（0.5 vCPU / 1GB を10分） |
 | 実験計画6本を全部回す | $0.1 未満（AWS 側のみ。外部APIの料金は別） |
+| **実績：構築から片付けまで1周** | **$0.01〜0.03**（2026-09-21 が $0.03、09-23 が $0.01） |
 
 **AWS 側の費用はほぼ無視できる。効いてくるのは外部APIの料金のほうなので、
 条件を増やす前に `result.json` の `usage` でトークン数を確認すること。**
@@ -223,18 +279,25 @@ aws s3 rm s3://$BUCKET --recursive && aws s3 rb s3://$BUCKET
 aws ecr delete-repository --region ap-northeast-1 --repository-name rageval --force
 ```
 
+**作成が失敗してロールバックしたときも、この「保持」が効く。**
+スタックは `ROLLBACK_COMPLETE` で消えるのに、S3 バケットと ECR リポジトリだけが残り、
+そのまま作り直すと「既にある」で再び失敗する。ロールバックしたら、上の2行も実行してから
+作り直すこと（2026-09-23 の検証で踏んだ。[VERIFICATION.md](VERIFICATION.md)）。
+
 ## 検証の状況
 
 | 対象 | 状態 |
 |---|---|
-| `cfn-lint`（両テンプレート） | 通過（エラー・警告なし） |
-| スタックの作成 | **検証済み**（`rageval` 8リソース / `rageval-build` 3リソース） |
-| イメージのビルドと push | **検証済み**（CodeBuild、3回目で成功） |
-| ECS でのタスク実行 | **検証済み**（2回目で成功、終了コード 0） |
+| `cfn-lint` / `checkov`（両テンプレート） | 通過（46件通過・失敗0・抑止5） |
+| `check_templates.py` | 通過。**cfn-lint が見ない制約を補う**（SG のルールの説明が ASCII のみ） |
+| スタックの作成 | **検証済み**（`rageval` 9リソース / `rageval-build` 3リソース） |
+| 送信専用セキュリティグループ | **検証済み（2回目）**。受信ルール 0 / 送信は tcp:443 のみ |
+| イメージのビルドと push | **検証済み**（CodeBuild。1回目の検証は3回、2回目は**1回で成功**） |
+| ECS でのタスク実行 | **検証済み**（終了コード 0） |
 | S3 への結果の書き出しと回収 | **検証済み**（SSE-AES256、バージョンID付き） |
-| 手元との結果一致 | **検証済み**（所要時間を除き1文字も違わない） |
-| 片付け | **検証済み**（作成したものはすべて削除） |
-| 実APIを使う経路（SSM 経由の鍵） | **未検証** |
+| 手元との結果一致 | **検証済み**。スコアと予測内容は完全一致。`seconds` だけ環境で変わる |
+| 片付け | **検証済み**。作業前後でアカウント全体の一覧が完全に同一 |
+| 実APIを使う経路（SSM 経由の鍵） | **未検証**（鍵が無いため） |
 
 つまずいた6点とその直し方は [VERIFICATION.md](VERIFICATION.md) に残してある。
 セキュリティの評価と、受け入れた残リスクは

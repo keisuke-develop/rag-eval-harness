@@ -181,3 +181,131 @@ ECR リポジトリ2件など）には一切触れていない。削除の記録
 > バージョニングを有効にしたバケットは、`aws s3 rm --recursive` だけでは消えない。
 > 旧バージョンと削除マーカーが残り、`rb` が失敗する。
 > `list-object-versions` で全バージョンを列挙して消す必要がある。
+
+---
+
+# 2回目の検証（2026-09-23）
+
+送信専用のセキュリティグループを足した構成で、もう一度通した。
+1回目（2026-09-21）のあとにテンプレートを変えたので、そこが動くかを確かめるため。
+
+**結果：通った。** ただし**3箇所でつまずいた**。うち1つはテンプレートの不具合で、
+**cfn-lint と checkov を通り抜けていた**もの。
+
+## つまずき 1：セキュリティグループのルールの説明が ASCII しか通らない
+
+```
+TaskSecurityGroup CREATE_FAILED
+Invalid rule description. Valid descriptions are strings less than 256 characters
+from the following set:  a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*
+```
+
+`GroupDescription` が ASCII 限定なのは1回目に気づいて英語にしていた。
+**`SecurityGroupEgress` の中の `Description` も同じ制約だった。**
+
+厄介なのは、**cfn-lint がこちらを検査しないこと。**
+`GroupDescription` には W1031 を出すが、ルール側の `Description` には何も言わない。
+checkov も通る。つまり手元の検査を全部通したうえで、デプロイ時に初めて落ちる。
+
+直し方は英語にして、日本語の説明は YAML のコメントに落とす。
+同じ落とし穴を踏まないよう、**`deploy/check_templates.py` を書いて CI に載せた。**
+直す前の状態で実際に落ちることも確認済み。
+
+## つまずき 2：ロールバックが孤児を残し、次の作成と衝突する
+
+`ResultsBucket` と `Repository` には `DeletionPolicy: Retain` を付けている
+（実験結果とイメージを、スタックを畳んでも失わないため）。意図した設定だが、
+**作成が失敗してロールバックしたときも「保持」が効く。**
+
+スタックは `ROLLBACK_COMPLETE` で消えるのに、S3 バケットと ECR リポジトリだけが残る。
+そのまま作り直すと「既にある」で再び失敗する。
+
+**ロールバックしたら、スタックを消したうえで残った2つも消してから作り直すこと。**
+
+```bash
+aws cloudformation delete-stack --stack-name rageval
+aws s3api delete-bucket --bucket rageval-results-<アカウントID>-ap-northeast-1
+aws ecr delete-repository --repository-name rageval --force
+```
+
+## つまずき 3：タスク定義の既定のタグでは起動しない
+
+```
+CannotPullContainerError: ... rageval:bootstrap: not found
+```
+
+これは**設計どおり**の挙動で、不具合ではない。
+ECR のタグを不変（`IMMUTABLE`）にしているので、ビルドは `build-<番号>` を振る。
+`ImageTag` の既定 `bootstrap` は、イメージが無い状態でスタックを先に作るための置き値。
+
+**ビルドしたあとに、実タグを指してスタックを更新する手順が抜けていた。**
+
+```bash
+aws cloudformation deploy --stack-name rageval \
+  --template-file deploy/cloudformation/rageval.yaml \
+  --parameter-overrides VpcId=$VPC ImageTag=build-1 \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+あわせて、**`deploy/README.md` に CodeBuild でビルドする手順そのものが無かった。**
+前提には「`docker` は要らない。イメージは CodeBuild で作る」と書いてあるのに、
+手順は `docker build` しか書いていなかった。README を直した。
+
+## 正しい順序
+
+1回目の記録では読み取れなかったので、ここに残す。
+**`rageval-build` は `rageval` より後。** `SourceBucket` に `rageval` の
+バケット名が要るため、先に作ろうとすると「Parameters: [SourceBucket] must have values」で止まる。
+
+| # | やること |
+|---|---|
+| 1 | `rageval` スタックを作る（`VpcId` を渡す） |
+| 2 | `deploy/package_source.py` で zip を作り、1 のバケットの `build/src.zip` に置く |
+| 3 | `rageval-build` スタックを作る（`SourceBucket` に 1 のバケット名） |
+| 4 | `codebuild start-build` を1回。`build-<番号>` が ECR に入る |
+| 5 | **`rageval` スタックを `ImageTag=build-<番号>` で更新する** |
+| 6 | `ecs run-task` を1回 |
+| 7 | S3 から結果を回収して、手元と突き合わせる |
+| 8 | 片付け（スタック2本 → 残った S3 と ECR） |
+
+## 確かめたこと
+
+| 項目 | 結果 |
+|---|---|
+| 送信専用セキュリティグループ | **受信ルール 0 / 送信は tcp:443 のみ。**狙いどおり |
+| CodeBuild でのビルド | **1回目で成功**（1回目の検証では3回かかった） |
+| イメージの中での動作確認 | buildspec が `rageval --help` を通してから push する。通った |
+| ECS タスク | 1回で終了コード 0 |
+| **スコアの一致** | **手元と完全一致**（Recall@5 = 0.5625 / MRR = 0.3365 / 根拠一致率 = 0.1875） |
+| `predictions.jsonl` | **計測時間（`seconds`）以外は53行すべて同一。**スコアと予測内容は1文字も違わない |
+
+`seconds` は実時間なので環境で変わる。**バイト単位では一致しない**が、
+スコアに使う値はすべて一致している。1回目の記録で「1文字違わない」と書いたのは
+スコアのことで、ファイル全体ではない。
+
+## かかった費用
+
+| 項目 | 実績 | 概算 |
+|---|---|---|
+| CodeBuild（general1.small） | 1回 / 約2分 | $0.010 |
+| Fargate タスク（0.5 vCPU / 1GB） | 2回 / 各約60秒 | $0.001 |
+| ECR ストレージ | 326MB × 1イメージ × 1時間未満 | ほぼ 0 |
+| S3・CloudWatch Logs | 数十KB | ほぼ 0 |
+| **合計** | | **約 $0.01** |
+
+見積もりは $0.02〜0.03 だったので、その範囲に収まった。
+ビルドが1回で済んだぶん、1回目（$0.03）より安い。
+
+## 片付けの確認
+
+作業前と作業後で、アカウント全体の一覧を突き合わせた。
+
+| 種別 | 作業前 | 作業後 |
+|---|---|---|
+| S3 バケット | 33 | **33（完全に同一）** |
+| CloudFormation スタック | 13 | **13（完全に同一）** |
+| ECR リポジトリ | 2 | **2（完全に同一）** |
+| IAM ロール | 31 | **31（完全に同一）** |
+
+`rageval` で始まるリソースは1つも残っていない。ロググループも残っていない。
+**既存のリソースには1つも触れていない。**

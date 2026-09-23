@@ -229,11 +229,15 @@ Resources:
       GroupDescription: !Sub "${ProjectName} task SG: egress only, no inbound rules"
       VpcId: !Ref VpcId
       SecurityGroupEgress:
+        # ECR からの取得、S3 への書き込み、外部APIの呼び出し。
+        # ルールの Description も GroupDescription と同じく ASCII しか通らない。
+        # cfn-lint は GroupDescription しか見ないので、日本語を書くと
+        # 検査を通り抜けてデプロイ時に落ちる（実機で1度落とした）。
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
-          Description: ECR からの取得、S3 への書き込み、外部APIの呼び出し
+          Description: HTTPS egress for ECR pull, S3 write and external API
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-task"

@@ -1,30 +1,49 @@
 # 実験004: 再ランクのコストに見合う改善があるか
 #
-# この実験は実APIを使う。OPENAI_API_KEY が要る。
-# 鍵なしで回せる同じ軸の条件は experiments/offline/004_rerank.yaml にある
-# （結果は docs/05_offline_results.md）。
+# **最初から位相を跨いで測る。** 実験005 を1つの位相で回して
+# 「効果あり」と読み違え、005b で取り下げた（docs/04_results.md）。
+# 同じ誤りを繰り返さないよう、004 は単一位相では回さない。
+#
+# 4つの位相それぞれで再ランクの有無を比べ、**差の符号が4つとも揃うか**を見る。
+# 揃えば効果として読める。揃わなければ境界の運だったということ。
+# これは実験008（ダミー条件）と同じやり方で、そこでは
+# 4位相すべてで改善し最小でも +0.111 だった。
 #
 # candidates を指定していないので、再ランクは top-k で取った集合を並べ替えるだけ。
-# Recall@5 は定義上動かず、動くのは MRR だけになる。これは計画どおりの仮説。
+# **Recall@5 は定義上動かず、動くのは MRR と、その先の生成側だけ。**
+# 実APIでは Recall が 0.94〜1.00 で天井に張り付いているので、
+# どのみち Recall では何も見えない。この実験で見たいのは順位の質のほう。
+#
+# 生成も実APIで回す。**順位が良くなると、答えの根拠も正しくなるのか**が、
+# この道具がいちばん知りたい種類の問い（検索側と生成側のつながり）。
 run_id: "004_rerank"
-description: "再ランクのコストに見合う改善があるか"
+description: "再ランクの効果が、チャンク境界の運を跨いで残るか"
+
+multi_axis_reason: "境界の運を跨いで効果が残るかを見る実験なので、phase と retrieve.rerank を組み合わせる"
 
 dataset:
   corpus: "datasets/corpus"
   qa_set: "datasets/qa_set.jsonl"
 
 variants:
-  - retrieve: { rerank: false }
-  - retrieve: { rerank: true }
-
+  - { label: "phase=0 / 再ランクなし", chunk: { phase: 0 }, retrieve: { rerank: false } }
+  - { label: "phase=0 / 再ランクあり", chunk: { phase: 0 }, retrieve: { rerank: true } }
+  - { label: "phase=128 / 再ランクなし", chunk: { phase: 128 }, retrieve: { rerank: false } }
+  - { label: "phase=128 / 再ランクあり", chunk: { phase: 128 }, retrieve: { rerank: true } }
+  - { label: "phase=256 / 再ランクなし", chunk: { phase: 256 }, retrieve: { rerank: false } }
+  - { label: "phase=256 / 再ランクあり", chunk: { phase: 256 }, retrieve: { rerank: true } }
+  - { label: "phase=384 / 再ランクなし", chunk: { phase: 384 }, retrieve: { rerank: false } }
+  - { label: "phase=384 / 再ランクあり", chunk: { phase: 384 }, retrieve: { rerank: true } }
 
 fixed:
   chunk:
     size: 512
-    overlap: 64
+    overlap: 0
+    phase: 0
   embedder:
-    provider: "openai"
-    model: "text-embedding-3-small"
+    provider: "bedrock"
+    model: "amazon.titan-embed-text-v2:0"
+    region: "ap-northeast-1"
   store:
     # 近似最近傍だと、そのぶれが条件の差に混ざる。比較の道具としては総当たりを使う。
     kind: "memory"
@@ -32,10 +51,11 @@ fixed:
     top_k: 5
     rerank: false
   generate:
-    provider: "openai"
-    model: "gpt-4o-mini"
+    # jp. は日本国内で処理される推論プロファイル。
+    provider: "bedrock"
+    model: "jp.anthropic.claude-haiku-4-5-20251001-v1:0"
     temperature: 0.0
-    seed: 42
+    region: "ap-northeast-1"
 
 metrics:
   - "recall_at_k"

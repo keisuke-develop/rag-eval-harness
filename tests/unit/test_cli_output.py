@@ -74,9 +74,28 @@ def test_a_wrong_key_says_to_make_a_new_one() -> None:
     assert "作り直す" in lines[1]
 
 
-def test_rate_limit_points_at_billing() -> None:
+def test_a_bare_429_points_at_billing_first() -> None:
+    """本文で区別がつかないとき。残高のほうが圧倒的に多いので、そちらを先に言う。"""
     lines = _advise(ExternalCallError("429 https://api.openai.com/v1/embeddings: slow down"))
     assert "Billing" in lines[1]
+
+
+def test_an_empty_balance_says_waiting_will_not_help() -> None:
+    """429 は「残高が無い」と「速すぎる」の両方で返る。やることは正反対。"""
+    lines = _advise(
+        ExternalCallError(
+            '429 https://api.openai.com/v1/embeddings: {"error": '
+            '{"type": "insufficient_quota", "code": "credit_balance_exhausted"}}'
+        )
+    )
+    assert "残高が無い" in lines[1]
+    assert "待っても直らない" in lines[1], "待てば直ると誤解させない"
+
+
+def test_a_real_rate_limit_says_to_slow_down() -> None:
+    lines = _advise(ExternalCallError('429 ...: {"error": {"code": "rate_limit_exceeded"}}'))
+    assert "速すぎる" in lines[1]
+    assert "Billing" not in lines[1], "残高の話と混ぜない"
 
 
 def test_a_wrong_model_name_points_at_the_experiment_file() -> None:

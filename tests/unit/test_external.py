@@ -21,6 +21,7 @@ from rageval.external import (
     RetryPolicy,
     TokenBucket,
     Usage,
+    _describe_failure,
     _has_control_chars,
     build_http_client,
     read_api_key,
@@ -274,3 +275,56 @@ def test_build_http_client_works_without_truststore(monkeypatch: pytest.MonkeyPa
     monkeypatch.setitem(sys.modules, "truststore", None)
     with build_http_client() as client:
         assert client._transport is not None
+
+
+# ---- 失敗した応答の要約 --------------------------------------------------
+#
+# 本文を切り捨てると、原因を分ける識別子が落ちる。
+# 429 は「残高が無い」と「呼び出しが速すぎる」の両方で返り、やることは正反対。
+
+
+def test_the_error_code_survives_a_long_message() -> None:
+    """長い message の後ろにある type / code を、切り捨てで失わないこと。"""
+    response = httpx.Response(
+        429,
+        json={
+            "error": {
+                "message": "You have no credits remaining. " + "詳しい説明。" * 60,
+                "type": "insufficient_quota",
+                "code": "credit_balance_exhausted",
+            }
+        },
+    )
+    described = _describe_failure(response, URL)
+    assert "insufficient_quota" in described
+    assert "credit_balance_exhausted" in described
+    assert "429" in described
+
+
+def test_a_response_without_an_error_object_still_reports_something() -> None:
+    described = _describe_failure(httpx.Response(500, json={"unexpected": True}), URL)
+    assert "500" in described
+    assert URL in described
+
+
+def test_a_non_json_body_is_handled() -> None:
+    described = _describe_failure(httpx.Response(502, text="<html>Bad Gateway</html>"), URL)
+    assert "502" in described
+    assert "Bad Gateway" in described
+
+
+def test_an_error_that_is_not_an_object_is_handled() -> None:
+    described = _describe_failure(httpx.Response(400, json={"error": "文字列だった"}), URL)
+    assert "400" in described
+
+
+@respx.mock
+def test_the_code_reaches_the_caller() -> None:
+    """呼び出し側が受け取る例外にも、識別子が入っていること。"""
+    respx.post(URL).mock(
+        return_value=httpx.Response(
+            400, json={"error": {"message": "x" * 500, "code": "invalid_api_key"}}
+        )
+    )
+    with pytest.raises(ExternalCallError, match="invalid_api_key"):
+        make_caller().post_json(URL, {})

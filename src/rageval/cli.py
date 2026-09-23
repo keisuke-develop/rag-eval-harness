@@ -102,12 +102,29 @@ def _describe(error: ErrorDetails) -> str:
     return f"{location}: {message}" if location else message
 
 
-#: 外部APIが返した状態コードごとに、何をすればよいかを1行で添える。
-#: 鍵を用意した直後に踏むのはほぼこの4つ。
-_API_ADVICE = {
+#: 応答の本文に出る識別子ごとの案内。状態コードより先に見る。
+#: 429 は「残高が無い」と「速すぎる」の両方で返るが、**やることは正反対**なので
+#: まとめて案内すると役に立たない。本文で区別できるときは区別する。
+_API_ADVICE_BY_BODY = {
+    "insufficient_quota": (
+        "残高が無い。platform.openai.com の Billing でクレジットを追加すること（待っても直らない）"
+    ),
+    "credit_balance_exhausted": (
+        "残高が無い。platform.openai.com の Billing でクレジットを追加すること（待っても直らない）"
+    ),
+    "rate_limit_exceeded": "呼び出しが速すぎる。retry の間隔を広げるか、条件数を減らすこと",
+    "model_not_found": (
+        "モデルが見つからないか、鍵に使う権限が無い。"
+        "実験ファイルの embedder.model / generate.model と、鍵の権限を確認すること"
+    ),
+    "invalid_api_key": "鍵が違う。platform.openai.com の API keys で作り直すこと",
+}
+
+#: 本文で区別がつかないときの、状態コードごとの案内。
+_API_ADVICE_BY_STATUS = {
     "401": "鍵が違うか失効している。platform.openai.com の API keys で作り直すこと",
     "403": "鍵にこのモデルを使う権限が無い。組織やプロジェクトの設定を確認すること",
-    "429": "レート制限か残高不足。Billing を確認するか、retry の間隔を広げること",
+    "429": "残高が無いか、呼び出しが速すぎる。まず Billing を確認すること",
     "404": "モデル名が違う。実験ファイルの embedder.model / generate.model を確認すること",
 }
 
@@ -116,7 +133,11 @@ def _advise(exc: Exception) -> list[str]:
     """失敗の内容に、次の一手を添える。鍵そのものは載せない。"""
     message = str(exc)
     lines = [message.splitlines()[0][:300]]
-    for code, advice in _API_ADVICE.items():
+    for marker, advice in _API_ADVICE_BY_BODY.items():
+        if marker in message:
+            lines.append(advice)
+            return lines
+    for code, advice in _API_ADVICE_BY_STATUS.items():
         if code in message:
             lines.append(advice)
             break

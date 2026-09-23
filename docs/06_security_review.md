@@ -221,7 +221,7 @@ uv run ruff check .   →  指摘 0 件
 |---|---|---|
 | **SAST** | ✅ | ruff の `S`（flake8-bandit）。CI で必須。カナリアで検出を確認済み |
 | DAST | — | 動的診断の対象になる Web アプリが無い |
-| Secret Scanning | ✅ | `detect-secrets`（27種のプラグイン）を CI に追加。コミット対象になるファイルだけを対象にする。**実際に走らせて 96 ファイル・検出0件**を確認。検出時に非ゼロで終わることも、AWS のサンプル鍵を仕込んで確認済み |
+| Secret Scanning | ✅ | `detect-secrets`（27種のプラグイン）を CI に追加。コミット対象になるファイルだけを対象にする。検出時に非ゼロで終わることも確認済み。**ただし detect-secrets は見本ファイル（`.env.example` など）を検査対象から外す。**同じ内容でも `.txt` / `.py` / `.yaml` なら検出するのに、見本だけ素通りする。利用者に「`.env.example` を写して鍵を入れる」と案内している以上、**そこが最も事故が起きやすい**ので、`tools/check_no_secrets.py` を別に置いて CI で通す |
 | **Dependency Scanning** | ✅ | `pip-audit` を CI に追加 |
 | **Container Scanning** | ✅ | ECR の ScanOnPush。実際に指摘が出た（§3）。あわせて **CI で毎回イメージをビルドし、`hadolint` を通す**。ビルドしたイメージの中で実験を1本回し、手元と同じスコアが出ることまで見る |
 | **IaC Scanning** | ✅ | `cfn-lint`（記法）に加えて **`checkov`（セキュリティ設定）を CI に追加**。46件通過・失敗0件・抑止5件。抑止は**テンプレート側に1件ずつ理由を書いて**おり、スキャナを黙らせてはいない（§4）。さらに **`deploy/check_templates.py` で cfn-lint が見ない制約を補う**。セキュリティグループのルールの説明は ASCII のみで、日本語を書くと**両スキャナを通り抜けてデプロイ時に落ちる**（実機で1度落とした） |

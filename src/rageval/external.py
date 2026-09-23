@@ -61,6 +61,31 @@ def read_api_key(env_name: str, *, fallback_provider: str) -> str:
     return key
 
 
+def _describe_failure(response: httpx.Response, url: str) -> str:
+    """失敗した応答を1行にする。**識別子を本文の切り捨てで失わないこと。**
+
+    OpenAI の応答は `{"error": {"message": ..., "type": ..., "code": ...}}` の形で、
+    長い `message` が先に来る。本文をそのまま切ると `type` と `code` が落ちる。
+
+    この2つは捨ててはいけない。たとえば 429 は「残高が無い」と「呼び出しが速すぎる」の
+    両方で返るが、**やることは正反対**（前者は待っても直らない）。
+    区別できるのは `type` / `code` だけなので、切る前に取り出して先頭に置く。
+    """
+    head = f"{response.status_code} {url}"
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return f"{head}: {response.text[:200]}"
+    if not isinstance(error, dict):
+        return f"{head}: {response.text[:200]}"
+
+    marks = [str(error[k]) for k in ("type", "code") if error.get(k)]
+    message = str(error.get("message", ""))[:200]
+    if marks:
+        return f"{head} [{' / '.join(marks)}]: {message}"
+    return f"{head}: {message or response.text[:200]}"
+
+
 class ExternalCallError(RuntimeError):
     """外部API呼び出しの失敗。リトライしても意味がないもの。"""
 
@@ -219,10 +244,10 @@ class ApiCaller:
             raise RetryableCallError(f"接続エラー: {url} ({exc})") from exc
 
         if response.status_code in RETRYABLE_STATUS:
-            raise RetryableCallError(f"{response.status_code} {url}: {response.text[:200]}")
+            raise RetryableCallError(_describe_failure(response, url))
         if response.status_code >= 400:
             # 4xx は呼び出し側の誤り。待っても直らないので即座に失敗させる。
-            raise ExternalCallError(f"{response.status_code} {url}: {response.text[:200]}")
+            raise ExternalCallError(_describe_failure(response, url))
 
         body: dict[str, Any] = response.json()
         self._record_tokens(body)

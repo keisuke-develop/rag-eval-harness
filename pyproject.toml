@@ -77,7 +77,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src", "tests", "datasets", "deploy"]
+files = ["src", "tests", "datasets", "deploy", "tools"]
 
 # 型スタブを提供していない依存。ここでだけ緩める。
 [[tool.mypy.overrides]]

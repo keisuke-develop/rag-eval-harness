@@ -94,6 +94,13 @@ jobs:
           uvx --from detect-secrets detect-secrets-hook \
             $(git ls-files --cached --others --exclude-standard)
 
+      # detect-secrets は見本ファイル（.env.example など）を検査対象から外す。
+      # 利用者には「.env.example を写して鍵を入れる」と案内しているので、
+      # 間違えて見本のほうを書き換えるのがいちばん起こりやすい事故になる。
+      # 実際に一度起きた。そこだけを見る検査を別に置く。
+      - name: Real keys in files that detect-secrets skips
+        run: uv run python tools/check_no_secrets.py
+
       # CloudFormation の記法（cfn-lint）とセキュリティ設定（checkov）。
       # cfn-lint はリンタでセキュリティ特化ではないので、両方通す。
       # checkov で意図的に見送った項目は、テンプレート側に理由つきで抑止を書いてある。

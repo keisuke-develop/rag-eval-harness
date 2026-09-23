@@ -10,7 +10,8 @@
 
 from __future__ import annotations
 
-from rageval.cli import _columns, _escape_cell, _render_markdown_table
+from rageval.cli import _advise, _columns, _escape_cell, _render_markdown_table
+from rageval.external import ExternalCallError
 
 BACKSLASH = chr(92)
 PIPE = "|"
@@ -59,3 +60,37 @@ def test_no_declared_metrics_means_show_everything() -> None:
 
 def test_declared_metrics_are_filtered_and_ordered() -> None:
     assert [key for key, _ in _columns(["mrr", "recall_at_k"])] == ["recall_at_k", "mrr"]
+
+
+# ---- 外部APIが失敗したときの案内 -----------------------------------------
+#
+# 鍵を用意した直後にいちばん踏みやすいのがここ。
+# トレースバックではなく、次に何をすればよいかを出す。
+
+
+def test_a_wrong_key_says_to_make_a_new_one() -> None:
+    lines = _advise(ExternalCallError("401 https://api.openai.com/v1/embeddings: {...}"))
+    assert "401" in lines[0]
+    assert "作り直す" in lines[1]
+
+
+def test_rate_limit_points_at_billing() -> None:
+    lines = _advise(ExternalCallError("429 https://api.openai.com/v1/embeddings: slow down"))
+    assert "Billing" in lines[1]
+
+
+def test_a_wrong_model_name_points_at_the_experiment_file() -> None:
+    lines = _advise(ExternalCallError("404 model not found"))
+    assert "embedder.model" in lines[1]
+
+
+def test_an_unknown_failure_still_says_something_useful() -> None:
+    lines = _advise(ExternalCallError("接続できない"))
+    assert len(lines) == 2
+    assert ".env" in lines[1]
+
+
+def test_the_advice_never_repeats_a_long_body() -> None:
+    """応答の本文が長くても、1行目は短く切る。端末を埋めないため。"""
+    lines = _advise(ExternalCallError("500 " + "x" * 5000))
+    assert len(lines[0]) <= 300

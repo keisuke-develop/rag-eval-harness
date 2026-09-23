@@ -121,6 +121,13 @@ uv run pytest
 uv run rageval run experiments/ci_baseline.yaml   # APIキー不要で動く
 ```
 
+実APIを使う条件（`experiments/001`〜`006`）を回すときは、リポジトリ直下に `.env` を置く。
+`.env.example` を写して鍵を入れれば足りる。コミットはされない。
+
+```bash
+cp .env.example .env    # そのあと OPENAI_API_KEY の行を書き換える
+```
+
 CI では上に加えて、静的解析（ruff の flake8-bandit ルール）、依存ライブラリの
 脆弱性検査（pip-audit）、CloudFormation の検査（cfn-lint）、評価スコアの回帰検証を回しています。
 何を対策し、何を PoC として外したかは [docs/06_security_review.md](docs/06_security_review.md) に

@@ -50,7 +50,8 @@ def read_api_key(env_name: str, *, fallback_provider: str) -> str:
     if not key:
         raise ValueError(
             f"{env_name} が設定されていない。"
-            f".env に置くか、provider: {fallback_provider} に切り替えること"
+            f"リポジトリ直下の .env に「{env_name}=...」の1行を置くか、"
+            f"環境変数で渡すか、provider: {fallback_provider} に切り替えること"
         )
     if _has_control_chars(key):
         raise ValueError(

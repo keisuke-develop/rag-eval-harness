@@ -736,3 +736,98 @@ def test_report_refuses_a_write_target_it_cannot_read(workspace: Path) -> None:
     result = runner.invoke(app, ["report", "--runs", str(workspace / "runs"), "--out", str(target)])
     assert result.exit_code == 1
     assert "書き出し先を読めない" in result.output
+
+
+# ---- .env の読み込み ------------------------------------------------------
+#
+# docs/00_requirements.md に「API キーは .env で与える」と書いてあり、
+# .env.example も置いてあるのに、読む処理が無かった。
+# 案内どおりに置いても効かない状態だったので、効くことをここで固定する。
+
+
+@pytest.mark.integration
+def test_the_key_in_a_dotenv_file_is_picked_up(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """リポジトリ直下の .env に置いた鍵が、実験を回すときに読まれること。"""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.chdir(workspace)
+    (workspace / ".env").write_text(
+        "# コメント行は無視される\nOPENAI_API_KEY=sk-from-dotenv\n", encoding="utf-8"
+    )
+
+    from rageval.cli import _load_env_file
+
+    _load_env_file()
+    import os
+
+    assert os.environ["OPENAI_API_KEY"] == "sk-from-dotenv"
+
+
+@pytest.mark.integration
+def test_an_existing_environment_variable_wins_over_the_dotenv_file(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CI や AWS では環境変数で渡す。ファイルが後から上書きしてはいけない。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-from-environment")
+    monkeypatch.chdir(workspace)
+    (workspace / ".env").write_text("OPENAI_API_KEY=sk-from-dotenv\n", encoding="utf-8")
+
+    from rageval.cli import _load_env_file
+
+    _load_env_file()
+    import os
+
+    assert os.environ["OPENAI_API_KEY"] == "sk-from-environment"
+
+
+@pytest.mark.integration
+def test_no_dotenv_file_is_fine(workspace: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """鍵を使わない条件では .env が無いのが普通。落ちないこと。"""
+    monkeypatch.chdir(workspace)
+    assert not (workspace / ".env").exists()
+
+    from rageval.cli import _load_env_file
+
+    _load_env_file()
+
+
+@pytest.mark.integration
+def test_a_missing_key_explains_where_to_put_it(workspace: Path) -> None:
+    """鍵が無いときの案内が、実際に効く置き方を指していること。"""
+    from rageval.external import read_api_key
+
+    with pytest.raises(ValueError) as excinfo:
+        read_api_key("RAGEVAL_TEST_ABSENT_KEY", fallback_provider="hashing")
+    message = str(excinfo.value)
+    assert ".env" in message
+    assert "環境変数" in message
+    assert "hashing" in message, "鍵なしで動かす道も示す"
+
+
+@pytest.mark.integration
+@respx.mock
+def test_a_rejected_key_is_reported_plainly(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """鍵を用意した直後にいちばん踏みやすい失敗。トレースバックにしない。"""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-wrong")
+    respx.post("https://api.openai.com/v1/embeddings").mock(
+        return_value=httpx.Response(401, json={"error": {"message": "Incorrect API key"}})
+    )
+    experiment = write_experiment(
+        workspace,
+        variants=[{"chunk": {"size": 128, "overlap": 8}}],
+        fixed={
+            "embedder": {"provider": "openai", "model": "text-embedding-3-small"},
+            "store": {"kind": "memory"},
+            "retrieve": {"top_k": 3, "rerank": False},
+            "generate": {"provider": "quote", "model": "top-hit-quote"},
+        },
+    )
+    result = CliRunner().invoke(app, ["run", str(experiment), "--out", str(workspace / "runs")])
+    assert result.exit_code == 1
+    assert "外部APIの呼び出しに失敗した" in result.output
+    assert "作り直す" in result.output, "次の一手を示す"
+    assert "Traceback" not in result.output
+    assert "sk-wrong" not in result.output, "鍵そのものを出力に載せない"

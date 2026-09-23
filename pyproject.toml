@@ -15,6 +15,7 @@ dependencies = [
     "tenacity>=9.0",
     "numpy>=2.0",
     "openai>=1.50",
+    "python-dotenv>=1.2.3",
 ]
 
 # chromadb は既定では入れない。

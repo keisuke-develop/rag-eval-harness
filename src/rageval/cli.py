@@ -17,11 +17,31 @@ from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
 import typer
+from dotenv import load_dotenv
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from rageval.config import ALLOWED_KEYS, ExperimentConfig, load_experiment
+from rageval.external import ExternalCallError
 from rageval.runner import RunResult, run_experiment
+
+
+def _load_env_file() -> None:
+    """カレントディレクトリの `.env` を読む。
+
+    `docs/00_requirements.md` に「API キーは `.env` で与える」と書いてあり、
+    `.env.example` も置いてあるのに、**読む処理が無かった**。
+    案内どおりに置いても効かない状態だったので入れた。
+
+    - 探すのはカレントディレクトリだけ。実験ファイルのデータセットのパスも
+      リポジトリ相対なので、この道具はもともとリポジトリ直下から実行する前提。
+      探索範囲を広げると、どの `.env` が効いたのかが分からなくなる。
+    - すでに環境変数があればそちらを優先する（`override=False`）。
+      CI や AWS では環境変数で渡すので、ファイルが後から上書きしてはいけない。
+    - ライブラリ側では読まない。副作用を持つのは入口だけにする。
+    """
+    load_dotenv(Path.cwd() / ".env", override=False)
+
 
 app = typer.Typer(
     add_completion=False,
@@ -40,6 +60,12 @@ _SCORE_LABELS = {
     "citation_match": "根拠一致率",
     "abstention": "棄権率",
 }
+
+
+@app.callback()
+def main() -> None:
+    """どのコマンドより先に走る。鍵を読めるようにしてから本体に入る。"""
+    _load_env_file()
 
 
 def _columns(metrics: list[str]) -> list[tuple[str, str]]:
@@ -74,6 +100,29 @@ def _describe(error: ErrorDetails) -> str:
         hint = f"書けるのは {', '.join(allowed)}" if allowed else "綴りを確認すること"
         return f"{location}: 指定できないキー。{hint}"
     return f"{location}: {message}" if location else message
+
+
+#: 外部APIが返した状態コードごとに、何をすればよいかを1行で添える。
+#: 鍵を用意した直後に踏むのはほぼこの4つ。
+_API_ADVICE = {
+    "401": "鍵が違うか失効している。platform.openai.com の API keys で作り直すこと",
+    "403": "鍵にこのモデルを使う権限が無い。組織やプロジェクトの設定を確認すること",
+    "429": "レート制限か残高不足。Billing を確認するか、retry の間隔を広げること",
+    "404": "モデル名が違う。実験ファイルの embedder.model / generate.model を確認すること",
+}
+
+
+def _advise(exc: Exception) -> list[str]:
+    """失敗の内容に、次の一手を添える。鍵そのものは載せない。"""
+    message = str(exc)
+    lines = [message.splitlines()[0][:300]]
+    for code, advice in _API_ADVICE.items():
+        if code in message:
+            lines.append(advice)
+            break
+    else:
+        lines.append("経路とモデル名を確認すること。鍵を入れ替えた直後なら .env の内容も見ること")
+    return lines
 
 
 def _load(path: Path) -> ExperimentConfig:
@@ -120,6 +169,10 @@ def run(
         # データセットが無い、評価セットとコーパスがずれている、など。
         # これも利用者が直せる誤りなので、トレースバックにしない。
         _fail("実験を回せなかった", str(exc))
+    except ExternalCallError as exc:
+        # 鍵が違う・残高が無い・レート制限に当たった、など。
+        # 鍵を入れて最初に踏むのはここなので、トレースバックにしない。
+        _fail("外部APIの呼び出しに失敗した", *_advise(exc))
     typer.echo("")
     typer.echo(_format_variant_table(result))
     typer.echo("")

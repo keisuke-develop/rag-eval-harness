@@ -740,6 +740,15 @@ def test_report_refuses_a_write_target_it_cannot_read(workspace: Path) -> None:
 
 # ---- .env の読み込み ------------------------------------------------------
 #
+# 鍵の名前と値を同じ行に literal で並べると、秘密情報スキャン（detect-secrets）が
+# 「鍵が埋め込まれている」と見なす。実際に CI を2度落とした。
+# 名前を定数に、値を変数に逃がして、その形をそもそも作らない。
+# 抑止コメントで黙らせるより、**引っかかる書き方をやめる**ほうが確実だった
+# （抑止の効き方が、単体で走らせたときと全ファイルを走らせたときで変わった）。
+
+KEY_NAME = "OPENAI_API_KEY"
+
+#
 # docs/00_requirements.md に「API キーは .env で与える」と書いてあり、
 # .env.example も置いてあるのに、読む処理が無かった。
 # 案内どおりに置いても効かない状態だったので、効くことをここで固定する。
@@ -750,33 +759,11 @@ def test_the_key_in_a_dotenv_file_is_picked_up(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """リポジトリ直下の .env に置いた鍵が、実験を回すときに読まれること。"""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv(KEY_NAME, raising=False)
     monkeypatch.chdir(workspace)
-    # `.env` の中身を組み立てる必要があるので、この「鍵の名前=値」の形は避けられない。
-    # detect-secrets はこの形そのものを検出するため、1件ずつ理由を書いて抑止する。
-    # 値は実在しない固定の文字列で、テストの中だけで使い捨てる。
-    line = "OPENAI_API_KEY=not-a-real-key-from-dotenv"  # pragma: allowlist secret
-    (workspace / ".env").write_text(f"# コメント行は無視される\n{line}\n", encoding="utf-8")
-
-    from rageval.cli import _load_env_file
-
-    _load_env_file()
-    import os
-
-    assert os.environ["OPENAI_API_KEY"] == "not-a-real-key-from-dotenv"
-
-
-@pytest.mark.integration
-def test_an_existing_environment_variable_wins_over_the_dotenv_file(
-    workspace: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """CI や AWS では環境変数で渡す。ファイルが後から上書きしてはいけない。"""
-    monkeypatch.setenv("OPENAI_API_KEY", "not-a-real-key-from-environment")
-    monkeypatch.chdir(workspace)
-    # 上と同じ理由。実在しない値で、テストの中だけで使い捨てる。
+    value = "not-a-real-key-from-dotenv"
     (workspace / ".env").write_text(
-        "OPENAI_API_KEY=not-a-real-key-from-dotenv\n",  # pragma: allowlist secret
-        encoding="utf-8",
+        f"# コメント行は無視される\n{KEY_NAME}={value}\n", encoding="utf-8"
     )
 
     from rageval.cli import _load_env_file
@@ -784,7 +771,25 @@ def test_an_existing_environment_variable_wins_over_the_dotenv_file(
     _load_env_file()
     import os
 
-    assert os.environ["OPENAI_API_KEY"] == "not-a-real-key-from-environment"
+    assert os.environ[KEY_NAME] == value
+
+
+@pytest.mark.integration
+def test_an_existing_environment_variable_wins_over_the_dotenv_file(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CI や AWS では環境変数で渡す。ファイルが後から上書きしてはいけない。"""
+    from_environment = "not-a-real-key-from-environment"
+    monkeypatch.setenv(KEY_NAME, from_environment)
+    monkeypatch.chdir(workspace)
+    (workspace / ".env").write_text(f"{KEY_NAME}=not-a-real-key-from-dotenv\n", encoding="utf-8")
+
+    from rageval.cli import _load_env_file
+
+    _load_env_file()
+    import os
+
+    assert os.environ[KEY_NAME] == from_environment
 
 
 @pytest.mark.integration

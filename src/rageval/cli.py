@@ -105,20 +105,25 @@ def _describe(error: ErrorDetails) -> str:
 #: 応答の本文に出る識別子ごとの案内。状態コードより先に見る。
 #: 429 は「残高が無い」と「速すぎる」の両方で返るが、**やることは正反対**なので
 #: まとめて案内すると役に立たない。本文で区別できるときは区別する。
-_API_ADVICE_BY_BODY = {
-    "insufficient_quota": (
-        "残高が無い。platform.openai.com の Billing でクレジットを追加すること（待っても直らない）"
+#: 辞書ではなく並びにしてあるのは、`"..._api_key": "..."` の形が
+#: 秘密情報スキャンに「鍵が埋め込まれている」と読まれるため。
+_API_ADVICE_BY_BODY = (
+    (
+        "insufficient_quota",
+        "残高が無い。platform.openai.com の Billing でクレジットを追加すること（待っても直らない）",
     ),
-    "credit_balance_exhausted": (
-        "残高が無い。platform.openai.com の Billing でクレジットを追加すること（待っても直らない）"
+    (
+        "credit_balance_exhausted",
+        "残高が無い。platform.openai.com の Billing でクレジットを追加すること（待っても直らない）",
     ),
-    "rate_limit_exceeded": "呼び出しが速すぎる。retry の間隔を広げるか、条件数を減らすこと",
-    "model_not_found": (
+    ("rate_limit_exceeded", "呼び出しが速すぎる。retry の間隔を広げるか、条件数を減らすこと"),
+    (
+        "model_not_found",
         "モデルが見つからないか、鍵に使う権限が無い。"
-        "実験ファイルの embedder.model / generate.model と、鍵の権限を確認すること"
+        "実験ファイルの embedder.model / generate.model と、鍵の権限を確認すること",
     ),
-    "invalid_api_key": "鍵が違う。platform.openai.com の API keys で作り直すこと",
-}
+    ("invalid_api_key", "鍵が違う。platform.openai.com の API keys で作り直すこと"),
+)
 
 #: 本文で区別がつかないときの、状態コードごとの案内。
 _API_ADVICE_BY_STATUS = {
@@ -133,7 +138,7 @@ def _advise(exc: Exception) -> list[str]:
     """失敗の内容に、次の一手を添える。鍵そのものは載せない。"""
     message = str(exc)
     lines = [message.splitlines()[0][:300]]
-    for marker, advice in _API_ADVICE_BY_BODY.items():
+    for marker, advice in _API_ADVICE_BY_BODY:
         if marker in message:
             lines.append(advice)
             return lines

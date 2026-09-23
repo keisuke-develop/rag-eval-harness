@@ -65,6 +65,8 @@ experiments/001_chunk_size.yaml
 
 生成プロバイダには Protocol を切らない。ADR 0002 で「あえて固定する」と決めた箇所なので、`generate.py` の中で `provider` の文字列による明示的な分岐にしてある。差し替えたくなったら分岐を1つ足すという判断が要る。
 
+**実際に1つ足した**（2026-09-23、`provider: bedrock`）。鍵を持たずに呼べること・前払いの残高に縛られないこと・比較の次元数を揃えられることが理由で、経緯は [ADR 0002 の追記](adr/0002-limit-pluggable-points.md)に残してある。分岐は3つになったが、**差し替え点の見た目は与えていない。**
+
 ```python
 class Chunker(Protocol):
     def split(self, doc: Document) -> list[Chunk]: ...

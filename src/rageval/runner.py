@@ -29,7 +29,15 @@ from rageval.evaluate import (
     load_qa_set,
     score,
 )
-from rageval.external import ApiCaller, RateLimit, Usage, build_http_client, read_api_key
+from rageval.external import (
+    ApiCaller,
+    BedrockCaller,
+    RateLimit,
+    Usage,
+    build_bedrock_client,
+    build_http_client,
+    read_api_key,
+)
 from rageval.generate import Answer, GenerationError, build_generator
 from rageval.ingest import Document, FixedSizeChunker, chunk_documents, load_corpus
 from rageval.retrieve import Retriever, build_reranker
@@ -108,12 +116,32 @@ def _dataset_info(config: ExperimentConfig, items: list[QaItem]) -> dict[str, An
     return info
 
 
-def _needs_external(config: ExperimentConfig) -> bool:
+def _uses(config: ExperimentConfig, provider: str) -> bool:
     return any(
-        variant.pipeline.embedder.provider == "openai"
-        or variant.pipeline.generate.provider == "openai"
+        variant.pipeline.embedder.provider == provider
+        or variant.pipeline.generate.provider == provider
         for variant in config.resolve()
     )
+
+
+def _bedrock_region(config: ExperimentConfig) -> str:
+    """実験ファイルが指したリージョン。条件ごとに違っていたら断る。
+
+    条件によって呼び先が変わると、比べているものが「モデルの差」なのか
+    「リージョンの差」なのか分からなくなる。
+    """
+    regions = set()
+    for variant in config.resolve():
+        if variant.pipeline.embedder.provider == "bedrock":
+            regions.add(variant.pipeline.embedder.region)
+        if variant.pipeline.generate.provider == "bedrock":
+            regions.add(variant.pipeline.generate.region)
+    if len(regions) > 1:
+        raise ValueError(
+            f"bedrock のリージョンが条件ごとに違う: {sorted(regions)}。"
+            "呼び先が変わると、モデルの差とリージョンの差が混ざる"
+        )
+    return regions.pop() if regions else "ap-northeast-1"
 
 
 def _build_caller() -> ApiCaller:
@@ -127,6 +155,19 @@ def _build_caller() -> ApiCaller:
     )
     # 既定は控えめ。上げるときは相手のレート上限を確認してからにする。
     return ApiCaller(client=client, rate_limit=RateLimit(requests_per_second=5.0, burst=5))
+
+
+def _build_bedrock_caller(region: str) -> BedrockCaller:
+    """Bedrock の呼び出し口。**鍵は読まない。**
+
+    認証は手元なら AWS の認証情報、AWS 上ならタスクロールが持つ。
+    `.env` に秘密を置く必要がないのが、この経路を選んだ理由の1つ。
+    """
+    return BedrockCaller(
+        client=build_bedrock_client(region=region),
+        region=region,
+        rate_limit=RateLimit(requests_per_second=5.0, burst=5),
+    )
 
 
 def _refuse_to_clobber(config: ExperimentConfig, out_root: Path) -> None:
@@ -158,6 +199,7 @@ def run_experiment(
     *,
     out_root: Path = Path("runs"),
     caller: ApiCaller | None = None,
+    bedrock: BedrockCaller | None = None,
     force: bool = False,
 ) -> RunResult:
     """条件を順に回して結果を書き出す。"""
@@ -169,15 +211,19 @@ def run_experiment(
     variants = config.resolve()
 
     with contextlib.ExitStack() as stack:
-        if caller is None and _needs_external(config):
+        if caller is None and _uses(config, "openai"):
             caller = _build_caller()
             stack.callback(caller.client.close)
+        if bedrock is None and _uses(config, "bedrock"):
+            bedrock = _build_bedrock_caller(_bedrock_region(config))
 
         results: list[VariantResult] = []
         prediction_rows: list[dict[str, Any]] = []
         total_usage = Usage()
         for variant in variants:
-            result, rows = _run_variant(variant.label, variant.pipeline, documents, items, caller)
+            result, rows = _run_variant(
+                variant.label, variant.pipeline, documents, items, caller, bedrock
+            )
             results.append(result)
             prediction_rows.extend(rows)
             total_usage.merge(result.usage)
@@ -203,16 +249,20 @@ def _run_variant(
     documents: list[Document],
     items: list[QaItem],
     caller: ApiCaller | None,
+    bedrock: BedrockCaller | None = None,
 ) -> tuple[VariantResult, list[dict[str, Any]]]:
     usage = Usage()
+    # 同じ Usage を両方に持たせる。提供元を混ぜた条件でも合計が1つに集まる。
     if caller is not None:
         caller.usage = usage
+    if bedrock is not None:
+        bedrock.usage = usage
 
     # 索引フェーズ
     index_started = time.perf_counter()
     chunker = FixedSizeChunker.from_config(pipeline.chunk)
     chunks = chunk_documents(documents, chunker)
-    embedder = build_embedder(pipeline.embedder, caller=caller)
+    embedder = build_embedder(pipeline.embedder, caller=caller, bedrock=bedrock)
     store = build_store(pipeline.store)
     store.upsert(chunks, embedder.embed([chunk.text for chunk in chunks]))
     index_seconds = time.perf_counter() - index_started
@@ -224,7 +274,7 @@ def _run_variant(
         config=pipeline.retrieve,
         reranker=build_reranker(pipeline.retrieve),
     )
-    generator = build_generator(pipeline.generate, caller=caller)
+    generator = build_generator(pipeline.generate, caller=caller, bedrock=bedrock)
 
     predictions: dict[str, Prediction] = {}
     gold: dict[str, set[str]] = {}

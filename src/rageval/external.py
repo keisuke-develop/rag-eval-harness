@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import ssl
 import time
@@ -194,10 +195,14 @@ def build_http_client(
 
 
 @dataclass
-class ApiCaller:
-    """外部APIへのPOSTを、リトライ・レート制限・使用量記録ごと引き受ける。"""
+class _RetryingCaller:
+    """リトライ・レート制限・使用量記録の土台。
 
-    client: httpx.Client
+    提供元ごとに呼び方は違っても（HTTP を直に叩く / SDK を通す）、
+    **守るべきことは同じ**（docs/01_architecture.md「外部呼び出しの扱い」）。
+    その同じ部分だけをここに置き、呼び方の違いは派生側で持つ。
+    """
+
     policy: RetryPolicy = field(default_factory=RetryPolicy)
     rate_limit: RateLimit = field(default_factory=RateLimit)
     usage: Usage = field(default_factory=Usage)
@@ -208,8 +213,8 @@ class ApiCaller:
     def __post_init__(self) -> None:
         self._bucket = TokenBucket(self.rate_limit, now=self.now, sleep=self.sleep)
 
-    def post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """JSONをPOSTしてJSONを受け取る。失敗は ExternalCallError 系に変換する。"""
+    def _with_retry(self, operation: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """1回ぶんの呼び出しを、リトライと時間の記録でくるむ。"""
 
         def _record_retry(state: RetryCallState) -> None:
             self.usage.retries += 1
@@ -228,10 +233,21 @@ class ApiCaller:
         try:
             for attempt in retrying:
                 with attempt:
-                    return self._attempt(url, payload)
+                    return operation()
         finally:
             self.usage.seconds += self.now() - started
         raise ExternalCallError("リトライが尽きた")  # pragma: no cover - Retrying が必ず送出する
+
+
+@dataclass
+class ApiCaller(_RetryingCaller):
+    """外部APIへのPOSTを、リトライ・レート制限・使用量記録ごと引き受ける。"""
+
+    client: httpx.Client = field(default_factory=httpx.Client)
+
+    def post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """JSONをPOSTしてJSONを受け取る。失敗は ExternalCallError 系に変換する。"""
+        return self._with_retry(lambda: self._attempt(url, payload))
 
     def _attempt(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._bucket.acquire()
@@ -259,3 +275,131 @@ class ApiCaller:
             return
         self.usage.input_tokens += int(raw.get("prompt_tokens", 0))
         self.usage.output_tokens += int(raw.get("completion_tokens", 0))
+
+
+# ---- Bedrock ------------------------------------------------------------
+#
+# 鍵を持たずに呼べるのが Bedrock を選んだ理由の1つ（ADR 0002 の追記を参照）。
+# 認証は手元なら AWS の認証情報、AWS 上ならタスクロールで、
+# `.env` に秘密を置く必要がない。
+
+#: 待てば直る見込みのあるもの。これ以外は即座に失敗させる。
+RETRYABLE_BEDROCK_ERRORS = frozenset(
+    {
+        "ThrottlingException",
+        "TooManyRequestsException",
+        "ServiceUnavailableException",
+        "InternalServerException",
+        "ModelTimeoutException",
+        "ModelNotReadyException",
+    }
+)
+
+
+def build_bedrock_client(
+    *,
+    region: str,
+    connect_timeout: float = 10.0,
+    read_timeout: float = 120.0,
+) -> Any:  # botocore のクライアントは型を持たないため Any
+    """Bedrock の呼び出し口を作る。
+
+    SDK 側のリトライは切ってある（`total_max_attempts: 1`）。
+    切らないと SDK が黙って再試行し、**こちらの記録に残らない**。
+    botocore の `max_attempts` は「リトライの回数」で、1 を渡すと合計2回になる。
+    切りたいときに指定するのは `total_max_attempts` のほう。
+    リトライは `_RetryingCaller` に一本化して、回数も待ち時間も
+    result.json に出せるようにする。
+
+    生成は応答が遅いので、読み取りの待ちを埋め込みより長めに取ってある。
+    """
+    import boto3
+    from botocore.config import Config
+
+    return boto3.client(
+        "bedrock-runtime",
+        region_name=region,
+        config=Config(
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            retries={"total_max_attempts": 1, "mode": "standard"},
+        ),
+    )
+
+
+@dataclass
+class BedrockCaller(_RetryingCaller):
+    """Bedrock の呼び出しを、リトライ・レート制限・使用量記録ごと引き受ける。
+
+    `ApiCaller` と守るものは同じ。違うのは呼び方だけ。
+    """
+
+    client: Any = None
+    region: str = "ap-northeast-1"
+
+    def invoke_model(self, model_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """埋め込み用。`InvokeModel` は本文を JSON のバイト列でやりとりする。"""
+        return self._with_retry(lambda: self._invoke(model_id, payload))
+
+    def converse(
+        self,
+        model_id: str,
+        *,
+        system: str,
+        user: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> dict[str, Any]:
+        """生成用。`Converse` は提供元ごとの本文の形の違いを吸収してくれる。"""
+        return self._with_retry(
+            lambda: self._converse(model_id, system, user, temperature, max_tokens)
+        )
+
+    def _invoke(self, model_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._bucket.acquire()
+        self.usage.requests += 1
+        response = self._guard(
+            model_id,
+            lambda: self.client.invoke_model(modelId=model_id, body=json.dumps(payload)),
+        )
+        body: dict[str, Any] = json.loads(response["body"].read())
+        # Titan は入力のトークン数を返す。Cohere は返さない。返ったものだけ数える。
+        self.usage.input_tokens += int(body.get("inputTextTokenCount", 0))
+        return body
+
+    def _converse(
+        self, model_id: str, system: str, user: str, temperature: float, max_tokens: int
+    ) -> dict[str, Any]:
+        self._bucket.acquire()
+        self.usage.requests += 1
+        body: dict[str, Any] = self._guard(
+            model_id,
+            lambda: self.client.converse(
+                modelId=model_id,
+                system=[{"text": system}],
+                messages=[{"role": "user", "content": [{"text": user}]}],
+                inferenceConfig={"temperature": temperature, "maxTokens": max_tokens},
+            ),
+        )
+        raw = body.get("usage")
+        if isinstance(raw, dict):
+            self.usage.input_tokens += int(raw.get("inputTokens", 0))
+            self.usage.output_tokens += int(raw.get("outputTokens", 0))
+        return body
+
+    def _guard(self, model_id: str, call: Callable[[], Any]) -> Any:
+        """SDK の例外を、こちらの2種類に振り分ける。"""
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        try:
+            return call()
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            message = str(exc.response.get("Error", {}).get("Message", ""))[:200]
+            described = f"{code} {model_id}: {message}"
+            if code in RETRYABLE_BEDROCK_ERRORS:
+                raise RetryableCallError(described) from exc
+            raise ExternalCallError(described) from exc
+        except BotoCoreError as exc:
+            # 接続できない・読み取りが間に合わない、など。待てば直る見込みがある。
+            raise RetryableCallError(f"接続エラー {model_id}: {exc}") from exc

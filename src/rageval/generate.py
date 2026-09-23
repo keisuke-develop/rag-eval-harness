@@ -26,6 +26,14 @@
 
 `provider: openai`
     実APIを叩く。JSON で返させ、`Answer` で検証する。
+
+`provider: bedrock`
+    Amazon Bedrock の Converse API を叩く。**APIキーを持たない**のが選んだ理由の1つ。
+    Converse は提供元ごとの本文の形の違いを吸収してくれるので、
+    Claude でも Nova でも同じ呼び方になる。
+    ただし OpenAI の `response_format` に当たるものが無いため、
+    **JSON だけを返させる強制力が弱い。** 前後に説明文が付くことがあるので、
+    `parse_answer` に入れる前に JSON の部分を取り出す。
 """
 
 from __future__ import annotations
@@ -37,7 +45,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rageval.config import GenerateConfig
-from rageval.external import ApiCaller, ExternalCallError, read_api_key
+from rageval.external import ApiCaller, BedrockCaller, ExternalCallError, read_api_key
 from rageval.store import SearchHit
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
@@ -157,16 +165,70 @@ def parse_answer(content: str) -> Answer:
         raise GenerationError(f"Answer の形になっていない: {content[:200]}") from exc
 
 
+def extract_json(content: str) -> str:
+    """応答から JSON の部分を取り出す。
+
+    OpenAI には `response_format` があり JSON だけが返るが、**Converse には無い。**
+    「はい、以下が回答です」のような前置きや、```json で囲った形が混ざる。
+
+    ここでやるのは**取り出しだけで、直しはしない。** 壊れた JSON を推測で
+    繕うと、生成が失敗したことが記録に残らなくなる（ADR 0003 の前提が崩れる）。
+    最初の `{` から最後の `}` までを切り出し、あとは `parse_answer` に任せる。
+    """
+    fenced = content.strip()
+    if fenced.startswith("```"):
+        # ```json ... ``` の中身だけにする
+        fenced = fenced.split("```")[1] if fenced.count("```") >= 2 else fenced
+        fenced = fenced.removeprefix("json").strip()
+    start = fenced.find("{")
+    end = fenced.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return content
+    return fenced[start : end + 1]
+
+
+@dataclass
+class _BedrockGenerator:
+    """Amazon Bedrock の Converse API。呼び出しは必ず `BedrockCaller` を通す。"""
+
+    config: GenerateConfig
+    caller: BedrockCaller
+
+    def __call__(self, question: str, hits: list[SearchHit]) -> Answer:
+        body = self.caller.converse(
+            self.config.model,
+            system=SYSTEM_PROMPT,
+            user=USER_PROMPT_TEMPLATE.format(context=format_context(hits), question=question),
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
+        )
+        try:
+            content = body["output"]["message"]["content"][0]["text"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ExternalCallError(f"生成の応答の形が想定と違う: {body}") from exc
+        return parse_answer(extract_json(content))
+
+
 def build_generator(
-    config: GenerateConfig, *, caller: ApiCaller | None = None
-) -> _QuoteGenerator | _OpenAIGenerator:
+    config: GenerateConfig,
+    *,
+    caller: ApiCaller | None = None,
+    bedrock: BedrockCaller | None = None,
+) -> _QuoteGenerator | _OpenAIGenerator | _BedrockGenerator:
     """条件から生成器を組み立てる。
 
     戻り値に共通の Protocol を与えていないのは意図的で、ADR 0002 の
     「生成プロバイダは差し替え点にしない」に従っている。
+    **分岐を足すのは意識的な判断として行うこと**、という決まりなので、
+    増やした経緯は ADR 0002 に追記してある。
     """
     if config.provider == "quote":
         return _QuoteGenerator(config=config)
+
+    if config.provider == "bedrock":
+        if bedrock is None:
+            raise ValueError("provider: bedrock には BedrockCaller が要る")
+        return _BedrockGenerator(config=config, caller=bedrock)
 
     if caller is None:
         raise ValueError("provider: openai には ApiCaller が要る")

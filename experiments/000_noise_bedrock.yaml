@@ -1,0 +1,57 @@
+# 実験000: 実APIでの測定系のノイズ幅
+#
+# **実APIで最初に回すのはこれ**（ADR 0004）。
+#
+# 動かすのは `chunk.phase` だけ。境界の位置をずらすだけの自由度で、
+# 分割の粗さも重複幅も変えないので、**本来スコアに意味のある影響を与えてはいけない。**
+# それでも動く幅が、この測定系で「条件の効果」と読んではいけない下限になる。
+#
+# ダミー埋め込みでは Recall が 0.083（4問ぶん）、MRR が 0.101 振れた
+# （docs/05_offline_results.md §007）。埋め込みが変われば幅も変わるので、
+# 実APIでは測り直す。これを知らずに他の条件を比べると、
+# 001 で「中間に山がある」と書いて取り下げたのと同じ誤りを繰り返す。
+#
+# 番号を 000 にしてあるのは、計画上の6本より前に回すものだから。
+run_id: "000_noise_bedrock"
+description: "条件を変えず境界の位相だけを振ったときの、スコアの散らばり（Bedrock）"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - chunk: { phase: 0 }
+  - chunk: { phase: 64 }
+  - chunk: { phase: 128 }
+  - chunk: { phase: 192 }
+  - chunk: { phase: 256 }
+  - chunk: { phase: 320 }
+  - chunk: { phase: 384 }
+  - chunk: { phase: 448 }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+    phase: 0
+  embedder:
+    provider: "bedrock"
+    model: "amazon.titan-embed-text-v2:0"
+    region: "ap-northeast-1"
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    # jp. は日本国内で処理される推論プロファイル。
+    provider: "bedrock"
+    model: "jp.anthropic.claude-haiku-4-5-20251001-v1:0"
+    temperature: 0.0
+    region: "ap-northeast-1"
+
+metrics:
+  - "recall_at_k"
+  - "mrr"
+  - "citation_match"
+  - "abstention"

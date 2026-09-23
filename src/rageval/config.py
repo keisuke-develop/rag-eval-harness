@@ -68,10 +68,14 @@ class ChunkConfig(_Section):
 class EmbedderConfig(_Section):
     """埋め込みプロバイダの条件。"""
 
-    provider: Literal["hashing", "openai"]
+    provider: Literal["hashing", "openai", "bedrock"]
     model: str
     dim: int = Field(default=512, gt=0, description="hashing のときのベクトル次元")
     batch_size: int = Field(default=64, gt=0)
+    region: str = Field(
+        default="ap-northeast-1",
+        description="bedrock のときのリージョン。他のプロバイダでは使わない",
+    )
 
 
 class StoreConfig(_Section):
@@ -109,11 +113,16 @@ class GenerateConfig(_Section):
     ここでも `provider` の文字列で切り替える。
     """
 
-    provider: Literal["quote", "openai"]
+    provider: Literal["quote", "openai", "bedrock"]
     model: str
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     seed: int = 42
     max_answer_chars: int = Field(default=160, gt=0)
+    max_tokens: int = Field(default=512, gt=0, description="生成の上限トークン数")
+    region: str = Field(
+        default="ap-northeast-1",
+        description="bedrock のときのリージョン。他のプロバイダでは使わない",
+    )
 
 
 class PipelineConfig(_Section):

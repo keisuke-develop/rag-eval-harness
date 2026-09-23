@@ -30,13 +30,13 @@ WORKDIR /app
 # 無くてもビルドは通ってしまうが、その場合イメージの中の配布物から
 # ライセンス本文が静かに落ちる。MIT は本文の同梱を求めるので必ず入れる。
 COPY pyproject.toml uv.lock README.md LICENSE ./
-RUN uv sync --locked --no-dev --group deploy --no-install-project
+RUN uv sync --locked --no-dev --no-install-project
 
 COPY src/ ./src/
 COPY datasets/ ./datasets/
 COPY experiments/ ./experiments/
 COPY deploy/entrypoint.sh deploy/upload_results.py ./deploy/
-RUN uv sync --locked --no-dev --group deploy && chmod +x ./deploy/entrypoint.sh
+RUN uv sync --locked --no-dev && chmod +x ./deploy/entrypoint.sh
 
 # 書き込むのは /tmp だけ。ルートファイルシステムは読み取り専用で動く。
 ENV RAGEVAL_OUT=/tmp/runs

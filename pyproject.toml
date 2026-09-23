@@ -16,6 +16,8 @@ dependencies = [
     "numpy>=2.0",
     "openai>=1.50",
     "python-dotenv>=1.2.3",
+    # Bedrock を呼ぶために本体が使う。以前は結果を S3 に置くときだけの依存だった
+    "boto3>=1.35",
 ]
 
 # chromadb は既定では入れない。
@@ -32,9 +34,6 @@ chroma = ["chromadb>=0.5"]
 rageval = "rageval.cli:app"
 
 [dependency-groups]
-# 結果を S3 に置くためだけに使う。ライブラリ本体は AWS に依存しない。
-# Docker イメージにはこのグループだけを足す（deploy/Dockerfile）。
-deploy = ["boto3>=1.35"]
 dev = [
     "pytest>=8.3",
     "pytest-cov>=5.0",

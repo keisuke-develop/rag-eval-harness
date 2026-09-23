@@ -2,25 +2,30 @@
 #
 # **この実験は実APIが要る。** ダミーの埋め込みは1種類しかなく、
 # dim を振っても「同じ手法の次元数」しか比べられないため、
-# 外部APIに出ない条件では実施できない（docs/05_offline_results.md §9）。
+# 外部APIに出ない条件では実施できない（docs/05_offline_results.md §B）。
 #
 # 計画上いちばん重要な実験。「ここが一番効くなら、チューニングより先に
 # モデルを選べ」という結論になりうるため（docs/03_experiment_plan.md）。
+# ダミー条件の実験010 で、埋め込みが足を引っ張っていることも分かっている。
 #
-# **回す前に、まず experiments/offline/007_boundary_noise.yaml と同じ測定を
-# 実APIの埋め込みでやること。** 埋め込みが変われば測定系のノイズ幅も変わる。
-# ダミーでは Recall が 0.083（4問）振れた。その幅を知らないまま
-# モデル間の差を読むと、001 と同じ誤りを繰り返す。
+# **回す前に、まず experiments/001_noise_bedrock.yaml で測定系のノイズ幅を測ること。**
+# 埋め込みが変われば幅も変わる。ダミーでは Recall が 0.083（4問）振れた。
+# その幅を知らないままモデル間の差を読むと、001 と同じ誤りを繰り返す（ADR 0004）。
+#
+# 比べるのは Titan v2 と Cohere 多言語 v3。**どちらも 1024 次元**なので、
+# 次元数を揃えたまま中身だけを変えられる。
+# OpenAI の small(1536) と large(3072) だと次元数も一緒に動くため、
+# 「モデルが良いのか、次元が多いだけなのか」が混ざる。
 run_id: "005_embedder"
-description: "埋め込みモデルの差が検索精度に与える影響"
+description: "埋め込みモデルの差が検索精度に与える影響（Bedrock）"
 
 dataset:
   corpus: "datasets/corpus"
   qa_set: "datasets/qa_set.jsonl"
 
 variants:
-  - embedder: { model: "text-embedding-3-small" }
-  - embedder: { model: "text-embedding-3-large" }
+  - embedder: { model: "amazon.titan-embed-text-v2:0" }
+  - embedder: { model: "cohere.embed-multilingual-v3" }
 
 fixed:
   chunk:
@@ -28,8 +33,9 @@ fixed:
     overlap: 0
     phase: 0
   embedder:
-    provider: "openai"
-    model: "text-embedding-3-small"
+    provider: "bedrock"
+    model: "amazon.titan-embed-text-v2:0"
+    region: "ap-northeast-1"
   store:
     # 近似最近傍だと、そのぶれが条件の差に混ざる。比較の道具としては総当たりを使う。
     kind: "memory"
@@ -37,10 +43,11 @@ fixed:
     top_k: 5
     rerank: false
   generate:
-    provider: "openai"
-    model: "gpt-4o-mini"
+    # jp. は日本国内で処理される推論プロファイル。
+    provider: "bedrock"
+    model: "jp.anthropic.claude-haiku-4-5-20251001-v1:0"
     temperature: 0.0
-    seed: 42
+    region: "ap-northeast-1"
 
 metrics:
   - "recall_at_k"

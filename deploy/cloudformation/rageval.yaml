@@ -324,6 +324,23 @@ Resources:
                 # ビルド成果物（build/）には書けないようにする。
                 # タスクが壊れても、次のビルドの入力をすり替えられない。
                 Resource: !Sub "${ResultsBucket.Arn}/runs/*"
+        # 埋め込みと生成を Bedrock で行う条件のために要る。
+        # **このロールがあるおかげで、タスクにAPIキーを渡す必要がない。**
+        # 呼べるのは推論だけで、モデルを作る・消すといった操作は含まない。
+        - PolicyName: InvokeBedrockModels
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                # 実験ファイルが指しうるモデルに限る。
+                # foundation-model は基盤モデルを直に指すとき、
+                # inference-profile は jp. / apac. のように
+                # 推論プロファイル経由で呼ぶときに要る。
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition

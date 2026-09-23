@@ -842,3 +842,131 @@ def test_a_rejected_key_is_reported_plainly(
     assert "作り直す" in result.output, "次の一手を示す"
     assert "Traceback" not in result.output
     assert "sk-wrong" not in result.output, "鍵そのものを出力に載せない"
+
+
+# ---- Bedrock 経路の通し ---------------------------------------------------
+#
+# boto3 はモックする。ここで見るのは配線で、SDK の挙動ではない。
+
+
+class _FakeBedrockBody:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._raw = json.dumps(payload).encode("utf-8")
+
+    def read(self) -> bytes:
+        return self._raw
+
+
+class _FakeBedrockClient:
+    """チャンク本文の長さでベクトルを決める。決定的で、内容の重なりも少し拾う。"""
+
+    def __init__(self) -> None:
+        self.models: list[str] = []
+
+    def invoke_model(self, *, modelId: str, body: str) -> dict[str, Any]:
+        self.models.append(modelId)
+        payload = json.loads(body)
+        text = payload.get("inputText", "")
+        return {"body": _FakeBedrockBody({"embedding": [float(len(text) % 7), 1.0]})}
+
+    def converse(self, **kwargs: Any) -> dict[str, Any]:
+        self.models.append(kwargs["modelId"])
+        context = kwargs["messages"][0]["content"][0]["text"]
+        chunk_id = context.split("[", 1)[1].split("]", 1)[0]
+        answer = json.dumps({"answer": "モック", "cited_chunk_ids": [chunk_id]})
+        return {
+            "output": {"message": {"content": [{"text": f"はい。\n```json\n{answer}\n```"}]}},
+            "usage": {"inputTokens": 100, "outputTokens": 10},
+        }
+
+
+@pytest.mark.integration
+def test_the_bedrock_path_runs_end_to_end(workspace: Path) -> None:
+    """鍵を1つも持たずに、実APIの経路が最後まで組み上がること。"""
+    from rageval.external import BedrockCaller
+
+    client = _FakeBedrockClient()
+    experiment = write_experiment(
+        workspace,
+        variants=[{"chunk": {"size": 128, "overlap": 8}}],
+        fixed={
+            "embedder": {"provider": "bedrock", "model": "amazon.titan-embed-text-v2:0"},
+            "store": {"kind": "memory"},
+            "retrieve": {"top_k": 3, "rerank": False},
+            "generate": {
+                "provider": "bedrock",
+                "model": "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+            },
+        },
+    )
+    result = run_experiment(
+        load_experiment(experiment),
+        out_root=workspace / "runs",
+        bedrock=BedrockCaller(client=client, sleep=lambda _: None),
+    )
+    variant = result.variants[0]
+    assert variant.usage.requests > 0
+    assert variant.usage.output_tokens > 0, "生成のトークン数が記録されていない"
+    assert variant.scores.generation_failures == 0, "``` で囲まれた応答を読めていない"
+    assert "amazon.titan-embed-text-v2:0" in client.models
+    assert "jp.anthropic.claude-haiku-4-5-20251001-v1:0" in client.models
+
+
+@pytest.mark.integration
+def test_a_region_that_differs_between_variants_is_refused(workspace: Path) -> None:
+    """呼び先が条件ごとに変わると、モデルの差とリージョンの差が混ざる。"""
+    experiment = write_experiment(
+        workspace,
+        variants=[
+            {"embedder": {"region": "ap-northeast-1"}},
+            {"embedder": {"region": "us-east-1"}},
+        ],
+        fixed={
+            "chunk": {"size": 128, "overlap": 8},
+            "embedder": {"provider": "bedrock", "model": "amazon.titan-embed-text-v2:0"},
+            "store": {"kind": "memory"},
+            "retrieve": {"top_k": 3, "rerank": False},
+            "generate": {"provider": "quote", "model": "top-hit-quote"},
+        },
+    )
+    result = CliRunner().invoke(app, ["run", str(experiment), "--out", str(workspace / "runs")])
+    assert result.exit_code == 1
+    assert "リージョンが条件ごとに違う" in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.integration
+def test_the_bedrock_region_comes_from_the_experiment_file(workspace: Path) -> None:
+    """実験ファイルが指したリージョンで呼び出し口を組み立てること。
+
+    ここでは組み立てまでを見る。実際の呼び出しはしない（AWS に出ない）。
+    """
+    from rageval.runner import _bedrock_region, _build_bedrock_caller
+
+    experiment = write_experiment(
+        workspace,
+        variants=[{"chunk": {"size": 128, "overlap": 8}}],
+        fixed={
+            "embedder": {
+                "provider": "bedrock",
+                "model": "amazon.titan-embed-text-v2:0",
+                "region": "ap-northeast-3",
+            },
+            "store": {"kind": "memory"},
+            "retrieve": {"top_k": 3, "rerank": False},
+            "generate": {"provider": "quote", "model": "top-hit-quote"},
+        },
+    )
+    config = load_experiment(experiment)
+    assert _bedrock_region(config) == "ap-northeast-3"
+    built = _build_bedrock_caller("ap-northeast-3")
+    assert built.region == "ap-northeast-3"
+    assert built.rate_limit.requests_per_second > 0, "レート制限が効いていない"
+
+
+@pytest.mark.integration
+def test_no_bedrock_in_the_experiment_means_the_default_region(workspace: Path) -> None:
+    config = load_experiment(write_experiment(workspace))
+    from rageval.runner import _bedrock_region
+
+    assert _bedrock_region(config) == "ap-northeast-1"

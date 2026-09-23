@@ -14,6 +14,11 @@
 `OpenAIEmbedder`（provider: openai）
     実APIを叩く。タイムアウト・リトライ・レート制限・トークン数記録は
     `external.ApiCaller` を必ず通す（docs/01_architecture.md）。
+
+`BedrockEmbedder`（provider: bedrock）
+    Amazon Bedrock を叩く。**APIキーを持たない**のが選んだ理由の1つで、
+    認証は手元なら AWS の認証情報、AWS 上ならタスクロールで行う。
+    Titan と Cohere で本文の形が違うので、そこだけを吸収する。
 """
 
 from __future__ import annotations
@@ -29,7 +34,12 @@ from typing import Protocol
 import numpy as np
 
 from rageval.config import EmbedderConfig
-from rageval.external import ApiCaller, ExternalCallError, read_api_key
+from rageval.external import (
+    ApiCaller,
+    BedrockCaller,
+    ExternalCallError,
+    read_api_key,
+)
 
 Vector = list[float]
 
@@ -128,10 +138,73 @@ class OpenAIEmbedder:
         return vectors
 
 
-def build_embedder(config: EmbedderConfig, *, caller: ApiCaller | None = None) -> Embedder:
+@dataclass
+class BedrockEmbedder:
+    """Amazon Bedrock の埋め込み。呼び出しは必ず `BedrockCaller` を通す。
+
+    Titan と Cohere で本文の形が違う。**違うのはそこだけ**なので、
+    送る形と受け取る形の対応だけを持ち、他は共通にしてある。
+
+    | | 送る | 受け取る | まとめて送れるか |
+    |---|---|---|---|
+    | Titan | `inputText`（1件） | `embedding` | いいえ |
+    | Cohere | `texts`（複数） | `embeddings` | はい |
+
+    Cohere は検索用途で `input_type` を要求する。文書とクエリで別の値を使うのが
+    本来だが、**この道具はチャンクもクエリも同じ経路で埋め込む**ので、
+    片方に決め打つと比較の条件が揃わない。`search_document` に固定してある。
+    """
+
+    model: str
+    caller: BedrockCaller
+    batch_size: int = 64
+
+    def embed(self, texts: list[str]) -> list[Vector]:
+        if self.model.startswith("cohere."):
+            return self._embed_cohere(texts)
+        return self._embed_titan(texts)
+
+    def _embed_titan(self, texts: list[str]) -> list[Vector]:
+        vectors: list[Vector] = []
+        for text in texts:
+            body = self.caller.invoke_model(self.model, {"inputText": text})
+            raw = body.get("embedding")
+            if not isinstance(raw, list):
+                raise ExternalCallError(f"埋め込みが返ってこなかった: {self.model}")
+            vectors.append([float(x) for x in raw])
+        return vectors
+
+    def _embed_cohere(self, texts: list[str]) -> list[Vector]:
+        vectors: list[Vector] = []
+        for start in range(0, len(texts), self.batch_size):
+            batch = texts[start : start + self.batch_size]
+            body = self.caller.invoke_model(
+                self.model, {"texts": batch, "input_type": "search_document"}
+            )
+            raw = body.get("embeddings")
+            if not isinstance(raw, list) or len(raw) != len(batch):
+                raise ExternalCallError(
+                    f"埋め込みの応答が入力と対応していない: {len(batch)} 件送って "
+                    f"{len(raw) if isinstance(raw, list) else '不明'} 件返ってきた"
+                )
+            vectors.extend([float(x) for x in item] for item in raw)
+        return vectors
+
+
+def build_embedder(
+    config: EmbedderConfig,
+    *,
+    caller: ApiCaller | None = None,
+    bedrock: BedrockCaller | None = None,
+) -> Embedder:
     """条件から埋め込み器を組み立てる。"""
     if config.provider == "hashing":
         return HashingEmbedder.from_config(config)
+
+    if config.provider == "bedrock":
+        if bedrock is None:
+            raise ValueError("provider: bedrock には BedrockCaller が要る")
+        return BedrockEmbedder(model=config.model, caller=bedrock, batch_size=config.batch_size)
 
     if caller is None:
         raise ValueError("provider: openai には ApiCaller が要る")

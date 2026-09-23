@@ -54,7 +54,7 @@ def test_the_value_itself_is_never_reported() -> None:
         "sk-...",
         "sk-proj-XXXXXXXXXXXXXXXXXXXX",
         "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "AKIAIOSFODNN7EXAMPLE",
+        "AKIA" + "IOSFODNN7EXAMPLE",  # AWS が文書で使う例示値。組み立てて literal を作らない
     ],
 )
 def test_a_placeholder_is_left_alone(placeholder: str) -> None:

@@ -89,9 +89,14 @@ jobs:
       # コミット対象のファイルに秘密情報が混ざっていないか。
       # public リポジトリなので、入ってからでは取り返しがつかない。
       # detect-secrets-hook は検出したら非ゼロで終わる。
+      #
+      # --no-verify を付けるのは、結果を環境に依存させないため。
+      # 既定では見つけた鍵が実在するかを提供元に問い合わせ、無効なら検出から外す。
+      # すると「手元では通るのに CI で落ちる」（あるいはその逆）が起きる。実際に足を取られた。
+      # **実在するかどうかは論点ではない。**コミット対象に鍵の形をしたものを置かない、が守りたいこと。
       - name: Secret scan
         run: |
-          uvx --from detect-secrets detect-secrets-hook \
+          uvx --from detect-secrets detect-secrets-hook --no-verify \
             $(git ls-files --cached --others --exclude-standard)
 
       # detect-secrets は見本ファイル（.env.example など）を検査対象から外す。

@@ -1,0 +1,58 @@
+# 実験005b: 埋め込みモデルの差が、境界の運を跨いで残るか
+#
+# 005 を1つの位相（phase=0）で回したところ、Cohere が MRR で +0.076 だった。
+# これは §000 で測ったノイズ幅（MRR 0.114）より小さい。
+#
+# **ただし §000 の幅をそのまま当てるのは誤り。**
+# あの幅は「チャンクの切り方が変わること」から出たもので、
+# ここでは**両条件がまったく同じチャンクを使う**（埋め込みだけが違う）。
+# 境界の運は両方に共通して差し引きで消える。
+# ADR 0004 が「対応のある比較には当てはまらない」と書いた例外にあたる。
+#
+# とはいえ、1つの位相で見ただけでは、その位相がたまたま
+# 片方に有利だった可能性を排除できない。実験008（再ランク × 位相）と同じやり方で、
+# **4つの位相それぞれで比べ、すべてで同じ向きに出るか**を見る。
+#
+# 期待するのは「差の符号が4つとも揃うこと」であって、差の大きさではない。
+run_id: "005b_embedder_across_phases"
+description: "埋め込みモデルの差が、チャンク境界の運を跨いで残るか"
+
+multi_axis_reason: "境界の運を跨いで効果が残るかを見る実験なので、phase と embedder.model を組み合わせる"
+
+dataset:
+  corpus: "datasets/corpus"
+  qa_set: "datasets/qa_set.jsonl"
+
+variants:
+  - { label: "phase=0 / titan", chunk: { phase: 0 }, embedder: { model: "amazon.titan-embed-text-v2:0" } }
+  - { label: "phase=0 / cohere", chunk: { phase: 0 }, embedder: { model: "cohere.embed-multilingual-v3" } }
+  - { label: "phase=128 / titan", chunk: { phase: 128 }, embedder: { model: "amazon.titan-embed-text-v2:0" } }
+  - { label: "phase=128 / cohere", chunk: { phase: 128 }, embedder: { model: "cohere.embed-multilingual-v3" } }
+  - { label: "phase=256 / titan", chunk: { phase: 256 }, embedder: { model: "amazon.titan-embed-text-v2:0" } }
+  - { label: "phase=256 / cohere", chunk: { phase: 256 }, embedder: { model: "cohere.embed-multilingual-v3" } }
+  - { label: "phase=384 / titan", chunk: { phase: 384 }, embedder: { model: "amazon.titan-embed-text-v2:0" } }
+  - { label: "phase=384 / cohere", chunk: { phase: 384 }, embedder: { model: "cohere.embed-multilingual-v3" } }
+
+fixed:
+  chunk:
+    size: 512
+    overlap: 0
+    phase: 0
+  embedder:
+    provider: "bedrock"
+    model: "amazon.titan-embed-text-v2:0"
+    region: "ap-northeast-1"
+  store:
+    kind: "memory"
+  retrieve:
+    top_k: 5
+    rerank: false
+  generate:
+    # 生成は使わない。検索側だけを見る実験なので、外部API の呼び出しを減らす。
+    provider: "quote"
+    model: "top-hit-quote"
+
+# 生成をダミーにしているので、生成側の指標は載せない（ADR 0005）。
+metrics:
+  - "recall_at_k"
+  - "mrr"
